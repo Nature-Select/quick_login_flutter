@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="com.quick.quicklogin.quick_login_flutter">
+  
+  <!-- 中国移动一键登录 SDK 需要的 Activity -->
+  <application>
+    <activity
+      android:name="com.cmic.gen.sdk.view.GenLoginAuthActivity"
+      android:exported="false"
+      android:screenOrientation="portrait"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+  </application>
+</manifest>

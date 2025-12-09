@@ -1,0 +1,70 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+# Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
+/pubspec.lock
+**/doc/api/
+.dart_tool/
+.flutter-plugins-dependencies
+/build/
+/coverage/
+
+# Local build artifacts for bundled AAR publishing/resolution
+/android/quicklogin_maven/
+/example/android/app/libs/
+
+# Serena tool cache and configuration
+.serena/
+
+# Flutter plugins
+.flutter-plugins
+
+# Android local properties
+android/local.properties
+example/android/local.properties
+
+# iOS Pods (optional - uncomment if needed)
+# ios/Pods/
+# ios/Podfile.lock
+# example/ios/Pods/
+# example/ios/Podfile.lock
+
+# Sensitive configuration files (DO NOT commit these!)
+# Environment variables
+.env
+example/.env
+!.env.example
+!example/.env.example
+
+# Android signing keys
+*.keystore
+*.jks
+example/android/key.properties
+android/key.properties
+example/android/app_key.keystore
+
+# Gradle wrapper properties (may contain proxy info)
+example/android/gradle/wrapper/gradle-wrapper.properties

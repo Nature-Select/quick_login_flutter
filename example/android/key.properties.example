@@ -1,0 +1,22 @@
+# Android 应用签名配置示例
+# 复制此文件为 key.properties 并填入你的真实签名信息
+
+# 签名密钥别名
+keyAlias=your_key_alias
+
+# 密钥密码
+keyPassword=your_key_password
+
+# KeyStore 密码
+storePassword=your_store_password
+
+# KeyStore 文件路径（相对于此文件的路径）
+storeFile=../your_keystore_file.keystore
+
+# 注意：
+# 1. 请勿将包含真实密码的 key.properties 文件提交到 git 仓库
+# 2. KeyStore 文件也不应提交到仓库
+# 3. 生产环境建议使用更强的密码
+# 4. 如何生成 KeyStore：
+#    keytool -genkey -v -keystore your_keystore_file.keystore \
+#    -keyalg RSA -keysize 2048 -validity 10000 -alias your_key_alias
