@@ -50,7 +50,7 @@ class _MyAppState extends State<MyApp> {
         _dismiss();
       } else if (eventType == QuickLoginEventKeys.eventTypeCheckboxNotChecked) {
         // 收到复选框未勾选事件，弹出 Toast 提示
-        BotToast.showText(text: '请先阅读并勾选隐私协议', align: Alignment.center);
+        // BotToast.showText(text: '请先阅读并勾选隐私协议', align: Alignment.center);
       } else if (eventType == QuickLoginEventKeys.eventTypeLoginCallback) {
         // 收到登录回调事件
         final payload = event[QuickLoginEventKeys.payload];

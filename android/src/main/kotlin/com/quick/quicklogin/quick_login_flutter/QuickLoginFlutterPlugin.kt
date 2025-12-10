@@ -13,10 +13,14 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.graphics.Rect
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.PixelFormat
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
@@ -27,6 +31,7 @@ import android.webkit.WebView
 import android.webkit.WebSettings
 import android.webkit.WebViewClient
 import androidx.annotation.NonNull
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -73,6 +78,11 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var customCloseButtonConfig: CustomCloseButtonConfig? = null
     private var lifecycleRegistered = false
     private val debugTag = "QLCustomBtn"
+    private var checkboxTipText: String = "请先阅读并勾选隐私协议"
+    private var nativeToastView: View? = null
+    private var nativeToastHideRunnable: Runnable? = null
+    private var nativeToastWindowManager: WindowManager? = null
+    private var currentTopActivity: Activity? = null
 
     private val authActivityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: android.os.Bundle?) {
@@ -85,12 +95,21 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         override fun onActivityResumed(activity: Activity) {
             maybeApplyAuthBackground(activity)
             maybeConfigureWebView(activity)
+            currentTopActivity = activity
         }
 
-        override fun onActivityPaused(activity: Activity) {}
+        override fun onActivityPaused(activity: Activity) {
+            if (currentTopActivity == activity) {
+                currentTopActivity = null
+            }
+        }
         override fun onActivityStopped(activity: Activity) {}
         override fun onActivitySaveInstanceState(activity: Activity, outState: android.os.Bundle) {}
-        override fun onActivityDestroyed(activity: Activity) {}
+        override fun onActivityDestroyed(activity: Activity) {
+            if (currentTopActivity == activity) {
+                currentTopActivity = null
+            }
+        }
     }
 
     private fun applyCustomCheckbox(container: ViewGroup, attempts: Int) {
@@ -355,6 +374,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      */
     private fun createThemeConfig(config: Map<String, Any?>?, activity: Activity): GenAuthThemeConfig {
         val builder = GenAuthThemeConfig.Builder()
+        checkboxTipText = "请先阅读并勾选隐私协议"
         
         if (config == null) {
             dialogCornerRadii = null
@@ -687,7 +707,9 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
         // 对应 SDK API: setCheckTipText(String)
         config["checkTipText"]?.let {
-            builder.setCheckTipText(it as String)
+            val tip = it as String
+            builder.setCheckTipText(tip)
+            checkboxTipText = tip
         }
 
         // ============ 10. 授权页底部文字 ============
@@ -1324,6 +1346,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 if (isChecked) {
                     nativeBtn.performClick()
                 } else {
+                    showCheckboxNotSelectedToast(contentRoot)
                     // 发送复选框未勾选事件到 Flutter
                     mainHandler.post {
                         eventSink?.success(mapOf("event" to "checkboxNotChecked"))
@@ -1708,6 +1731,121 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val g = Color.green(color)
         val b = Color.blue(color)
         return Color.argb(a, r, g, b)
+    }
+
+    private fun showCheckboxNotSelectedToast(anchor: ViewGroup?) {
+        val msg = checkboxTipText.trim().ifEmpty { "请先阅读并勾选隐私协议" }
+        showNativeToast(msg, anchor)
+    }
+
+    private fun showNativeToast(message: String, anchor: ViewGroup?, durationMs: Long = 3000L) {
+        mainHandler.post {
+            val ctx = anchor?.context ?: activity ?: context ?: return@post
+            val currentActivity = currentTopActivity ?: activity ?: (ctx as? Activity) ?: return@post
+            val wm = currentActivity.windowManager
+                ?: ctx.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                ?: return@post
+
+            nativeToastHideRunnable?.let { mainHandler.removeCallbacks(it) }
+            try {
+                nativeToastWindowManager?.let { manager ->
+                    nativeToastView?.let { manager.removeViewImmediate(it) }
+                }
+            } catch (_: Exception) {
+            }
+            nativeToastView = null
+            nativeToastWindowManager = wm
+
+            val metrics = ctx.resources.displayMetrics
+            val width = metrics.widthPixels
+            val drawable = ContextCompat.getDrawable(ctx, R.drawable.common_toast_background)
+            val height = if (drawable is BitmapDrawable && drawable.bitmap.width > 0) {
+                (width * drawable.bitmap.height / drawable.bitmap.width.toFloat()).toInt()
+            } else {
+                toPx(66f, ctx).toInt()
+            }
+
+            val toast = FrameLayout(ctx).apply {
+                isClickable = false
+                isFocusable = false
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    height
+                )
+            }
+
+            val bgView = ImageView(ctx).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                scaleType = ImageView.ScaleType.FIT_XY
+                setImageDrawable(drawable)
+                isClickable = false
+            }
+
+            val paddingH = toPx(57f, ctx).toInt()
+            val textView = TextView(ctx).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                }
+                text = message
+                gravity = Gravity.CENTER
+                setPadding(paddingH, 0, paddingH, 0)
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+
+            toast.addView(bgView)
+            toast.addView(textView)
+
+            val flags = (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                    or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                    or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_PANEL
+            } else {
+                WindowManager.LayoutParams.TYPE_APPLICATION_PANEL
+            }
+            val lp = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                height,
+                type,
+                flags,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+                token = currentActivity.window?.decorView?.windowToken
+            }
+
+            toast.alpha = 0f
+            try {
+                wm.addView(toast, lp)
+            } catch (e: Exception) {
+                logDebug("toast_add_error", mapOf("error" to e.message))
+                return@post
+            }
+
+            toast.animate().alpha(1f).setDuration(200L).start()
+
+            val hideRunnable = Runnable {
+                toast.animate().alpha(0f).setDuration(200L).withEndAction {
+                    try {
+                        wm.removeViewImmediate(toast)
+                    } catch (_: Exception) {
+                    }
+                }.start()
+            }
+            nativeToastHideRunnable = hideRunnable
+            mainHandler.postDelayed(hideRunnable, durationMs)
+            nativeToastView = toast
+        }
     }
 
     private fun toPx(dp: Float, context: Context): Float {
