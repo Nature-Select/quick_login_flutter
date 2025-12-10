@@ -110,8 +110,8 @@ class _MyAppState extends State<MyApp> {
         ? const AuthUIConfig(
           presentationStyle: AuthPresentationStyle.bottomSheet,
           backgroundColor: 0xFFFFFFFF,
-          windowCornerRadiusTopLeft: 40,
-          windowCornerRadiusTopRight: 40,
+          windowCornerRadiusTopLeft: 20,
+          windowCornerRadiusTopRight: 20,
           windowHeightPercent: 0.65,
           windowHeight: 294,
           statusBarDarkText: true,

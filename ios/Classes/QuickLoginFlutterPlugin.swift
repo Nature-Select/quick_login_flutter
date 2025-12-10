@@ -219,6 +219,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     let windowWidth = config["windowWidth"] as? Double
     let windowHeight = config["windowHeight"] as? Double
     let windowCornerRadius = config["windowCornerRadius"] as? Double
+    let windowCornerRadiusTopLeft = config["windowCornerRadiusTopLeft"] as? Double
+    let windowCornerRadiusTopRight = config["windowCornerRadiusTopRight"] as? Double
     let checkboxOffsetX = config["checkboxOffsetX"] as? Double
     let checkboxOffsetY = config["checkboxOffsetY"] as? Double
     let defaultCheckedImageName = "check_box_selected"
@@ -497,26 +499,21 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       }
     }
 
-    if let cornerRadius = windowCornerRadius, presentation == "bottomSheet" {
-      let previousAuthViewBlock = model.authViewBlock
-      model.authViewBlock = { customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame in
-        previousAuthViewBlock?(customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame)
-        guard let containerView = customView else { return }
-        let radius = CGFloat(cornerRadius)
-        if #available(iOS 11.0, *) {
-          containerView.clipsToBounds = true
-          containerView.layer.cornerRadius = radius
-          containerView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        } else {
-          let path = UIBezierPath(
-            roundedRect: containerView.bounds,
-            byRoundingCorners: [.topLeft, .topRight],
-            cornerRadii: CGSize(width: radius, height: radius)
-          )
-          let maskLayer = CAShapeLayer()
-          maskLayer.frame = containerView.bounds
-          maskLayer.path = path.cgPath
-          containerView.layer.mask = maskLayer
+    if presentation == "bottomSheet" {
+      let resolvedTopLeft = windowCornerRadiusTopLeft ?? windowCornerRadius
+      let resolvedTopRight = windowCornerRadiusTopRight ?? windowCornerRadius
+      if let tl = resolvedTopLeft ?? resolvedTopRight, tl > 0 || (resolvedTopRight ?? 0) > 0 {
+        let topLeftRadius = CGFloat(resolvedTopLeft ?? 0)
+        let topRightRadius = CGFloat(resolvedTopRight ?? 0)
+        let previousAuthViewBlock = model.authViewBlock
+        model.authViewBlock = { [weak self] customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame in
+          previousAuthViewBlock?(customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame)
+          guard let self = self, let containerView = customView else { return }
+          self.applyTopCornerMask(to: containerView, topLeft: topLeftRadius, topRight: topRightRadius)
+          DispatchQueue.main.async { [weak self, weak containerView] in
+            guard let self = self, let containerView = containerView else { return }
+            self.applyTopCornerMask(to: containerView, topLeft: topLeftRadius, topRight: topRightRadius)
+          }
         }
       }
     }
@@ -802,6 +799,59 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       customView.addSubview(overlay)
       customView.bringSubviewToFront(overlay)
     }
+  }
+  
+  private func applyTopCornerMask(to view: UIView, topLeft: CGFloat, topRight: CGFloat) {
+    let tl = max(0, topLeft)
+    let tr = max(0, topRight)
+    if tl == 0 && tr == 0 {
+      view.layer.mask = nil
+      view.clipsToBounds = false
+      return
+    }
+    view.layoutIfNeeded()
+    let path = topCornersPath(for: view.bounds, topLeft: tl, topRight: tr)
+    let maskLayer = CAShapeLayer()
+    maskLayer.frame = view.bounds
+    maskLayer.path = path.cgPath
+    view.layer.mask = maskLayer
+    view.clipsToBounds = true
+  }
+
+  private func topCornersPath(for rect: CGRect, topLeft: CGFloat, topRight: CGFloat) -> UIBezierPath {
+    let maxRadius = min(rect.width, rect.height) / 2
+    let tl = min(topLeft, maxRadius)
+    let tr = min(topRight, maxRadius)
+
+    let path = UIBezierPath()
+    let minX = rect.minX
+    let maxX = rect.maxX
+    let minY = rect.minY
+    let maxY = rect.maxY
+
+    // 起点：左下角
+    path.move(to: CGPoint(x: minX, y: maxY))
+    // 左边直线到左上圆角起点
+    path.addLine(to: CGPoint(x: minX, y: minY + tl))
+    // 左上角圆弧
+    if tl > 0 {
+      path.addQuadCurve(to: CGPoint(x: minX + tl, y: minY), controlPoint: CGPoint(x: minX, y: minY))
+    } else {
+      path.addLine(to: CGPoint(x: minX, y: minY))
+    }
+    // 顶部直线到右上圆角起点
+    path.addLine(to: CGPoint(x: maxX - tr, y: minY))
+    // 右上角圆弧
+    if tr > 0 {
+      path.addQuadCurve(to: CGPoint(x: maxX, y: minY + tr), controlPoint: CGPoint(x: maxX, y: minY))
+    } else {
+      path.addLine(to: CGPoint(x: maxX, y: minY))
+    }
+    // 右边直线到右下角
+    path.addLine(to: CGPoint(x: maxX, y: maxY))
+    // 回到起点
+    path.close()
+    return path
   }
   
   private func loadImage(named name: String) -> UIImage? {
