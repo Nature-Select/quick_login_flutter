@@ -10,6 +10,7 @@ private class LoginButtonActionTarget: NSObject {
   var checkBoxFrame: CGRect = .zero
   var eventSink: FlutterEventSink?
   var findCheckboxFunc: ((UIView, CGRect) -> UIView?)?
+  weak var plugin: QuickLoginFlutterPlugin?
 
   @objc func triggerNativeButton(_ sender: UIButton) {
     // 检查复选框是否勾选
@@ -18,8 +19,10 @@ private class LoginButtonActionTarget: NSObject {
        let checkboxButton = checkboxView as? UIButton {
       // 检测复选框是否被选中（通过 isSelected 属性）
       if !checkboxButton.isSelected {
-        // 发送复选框未勾选事件到 Flutter
         DispatchQueue.main.async { [weak self] in
+          // 原生弹出提示，避免 Flutter 侧被覆盖
+          self?.plugin?.showCheckboxNotSelectedToast(in: customView)
+          // 继续发送事件，保持 Dart 侧兼容
           self?.eventSink?(["event": "checkboxNotChecked"])
         }
         return
@@ -36,6 +39,9 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var pendingResult: FlutterResult?
   private var appId: String?
   private var appKey: String?
+  private var toastView: UIView?
+  private var toastHideWorkItem: DispatchWorkItem?
+  private var checkboxTipText: String = "请先阅读并勾选隐私协议"
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "quick_login_flutter", binaryMessenger: registrar.messenger())
@@ -195,6 +201,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
 
   private func applyUiConfig(_ config: [String: Any]?, model: UAFCustomModel) {
     let config = config ?? [:]
+    // 每次配置时刷新勾选提示文案，避免复用旧值
+    checkboxTipText = "请先阅读并勾选隐私协议"
     let presentation = (config["presentationStyle"] as? String) ?? "fullScreen"
     let widthPercent = config["windowWidthPercent"] as? Double
     let heightPercent = config["windowHeightPercent"] as? Double
@@ -455,6 +463,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
           actionTarget.checkBoxFrame = checkBoxFrame
           actionTarget.eventSink = self.eventSink
           actionTarget.findCheckboxFunc = self.findCheckbox
+          actionTarget.plugin = self
 
           // 使用关联对象保存 actionTarget，防止被释放
           objc_setAssociatedObject(customLoginButton, "actionTarget", actionTarget, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -615,6 +624,9 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
 
     if let tipText = config["checkTipText"] as? String {
       model.checkTipText = tipText
+      checkboxTipText = tipText
+    } else {
+      checkboxTipText = "请先阅读并勾选隐私协议"
     }
 
     let checkedName = (config["checkboxCheckedImageName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -751,10 +763,21 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private func loadImage(named name: String) -> UIImage? {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
+    let pluginBundle = Bundle(for: QuickLoginFlutterPlugin.self)
+    let resourceBundle: Bundle? = {
+      if let path = Bundle.main.path(forResource: "TYRZResource", ofType: "bundle") {
+        return Bundle(path: path)
+      }
+      return nil
+    }()
+
     if let image = UIImage(named: trimmed) {
       return image
     }
-    if let image = UIImage(named: trimmed, in: Bundle(for: QuickLoginFlutterPlugin.self), compatibleWith: nil) {
+    if let image = UIImage(named: trimmed, in: pluginBundle, compatibleWith: nil) {
+      return image
+    }
+    if let bundle = resourceBundle, let image = UIImage(named: trimmed, in: bundle, compatibleWith: nil) {
       return image
     }
     if !trimmed.lowercased().hasSuffix(".png") {
@@ -762,7 +785,10 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       if let image = UIImage(named: nameWithExtension) {
         return image
       }
-      if let image = UIImage(named: nameWithExtension, in: Bundle(for: QuickLoginFlutterPlugin.self), compatibleWith: nil) {
+      if let image = UIImage(named: nameWithExtension, in: pluginBundle, compatibleWith: nil) {
+        return image
+      }
+      if let bundle = resourceBundle, let image = UIImage(named: nameWithExtension, in: bundle, compatibleWith: nil) {
         return image
       }
     }
@@ -775,6 +801,100 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     let g = CGFloat((value >> 8) & 0xff) / 255.0
     let b = CGFloat(value & 0xff) / 255.0
     return UIColor(red: r, green: g, blue: b, alpha: a)
+  }
+
+  fileprivate func showCheckboxNotSelectedToast(in view: UIView?) {
+    let text = checkboxTipText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let message = text.isEmpty ? "请先阅读并勾选隐私协议" : text
+    showNativeToast(message: message, in: view)
+  }
+
+  private func showNativeToast(message: String, in containerView: UIView?, duration: TimeInterval = 3.0) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      self.toastHideWorkItem?.cancel()
+      self.toastView?.removeFromSuperview()
+
+      // 优先在传入的容器所在的 window 层展示，保持与全屏 window 中心对齐
+      let fallbackHost = containerView ?? self.topViewController()?.view
+      guard let hostView = fallbackHost else { return }
+      let anchorView = hostView.window ?? self.keyWindow() ?? hostView
+
+      let toast = UIView()
+      toast.translatesAutoresizingMaskIntoConstraints = false
+      toast.isUserInteractionEnabled = false
+
+      let bgImage = self.loadImage(named: "common_toast_background")
+      let backgroundView = UIImageView(image: bgImage)
+      backgroundView.translatesAutoresizingMaskIntoConstraints = false
+      backgroundView.contentMode = .scaleToFill
+      backgroundView.clipsToBounds = true
+      toast.addSubview(backgroundView)
+
+      let label = UILabel()
+      label.translatesAutoresizingMaskIntoConstraints = false
+      label.text = message
+      label.textAlignment = .center
+      label.textColor = .white
+      label.numberOfLines = 2
+      label.font = UIFont.systemFont(ofSize: 14, weight: .light)
+      toast.addSubview(label)
+
+      anchorView.addSubview(toast)
+
+      let width = anchorView.bounds.width > 0 ? anchorView.bounds.width : UIScreen.main.bounds.width
+      let height: CGFloat
+      if let size = bgImage?.size, size.width > 0 {
+        height = width * (size.height / size.width)
+      } else {
+        height = 66
+      }
+
+      NSLayoutConstraint.activate([
+        toast.leadingAnchor.constraint(equalTo: anchorView.leadingAnchor),
+        toast.trailingAnchor.constraint(equalTo: anchorView.trailingAnchor),
+        toast.centerYAnchor.constraint(equalTo: anchorView.centerYAnchor),
+        toast.heightAnchor.constraint(equalToConstant: height),
+
+        backgroundView.leadingAnchor.constraint(equalTo: toast.leadingAnchor),
+        backgroundView.trailingAnchor.constraint(equalTo: toast.trailingAnchor),
+        backgroundView.topAnchor.constraint(equalTo: toast.topAnchor),
+        backgroundView.bottomAnchor.constraint(equalTo: toast.bottomAnchor),
+
+        label.leadingAnchor.constraint(equalTo: toast.leadingAnchor, constant: 57),
+        label.trailingAnchor.constraint(equalTo: toast.trailingAnchor, constant: -57),
+        label.centerYAnchor.constraint(equalTo: toast.centerYAnchor)
+      ])
+
+      hostView.layoutIfNeeded()
+
+      toast.alpha = 0
+      UIView.animate(withDuration: 0.2) {
+        toast.alpha = 1
+      }
+
+      let workItem = DispatchWorkItem { [weak toast] in
+        UIView.animate(withDuration: 0.2, animations: {
+          toast?.alpha = 0
+        }, completion: { _ in
+          toast?.removeFromSuperview()
+        })
+      }
+      self.toastHideWorkItem = workItem
+      DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: workItem)
+      self.toastView = toast
+    }
+  }
+
+  private func keyWindow() -> UIWindow? {
+    if #available(iOS 13.0, *) {
+      return UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .flatMap { $0.windows }
+        .first { $0.isKeyWindow }
+    } else {
+      return UIApplication.shared.keyWindow ?? UIApplication.shared.windows.first
+    }
   }
 }
 

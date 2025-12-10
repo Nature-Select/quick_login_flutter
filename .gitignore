@@ -68,3 +68,4 @@ example/android/app_key.keystore
 
 # Gradle wrapper properties (may contain proxy info)
 example/android/gradle/wrapper/gradle-wrapper.properties
+.cursor

@@ -17,7 +17,7 @@ Wraps the CMCC one-click login native SDK (Android/iOS) and exposes a simple Dar
   s.dependency 'Flutter'
   s.platform = :ios, '12.0'
   s.vendored_frameworks = 'Frameworks/TYRZUISDK.xcframework'
-  s.resources = ['Resources/TYRZResource.bundle', 'Resources/PrivacyInfo.xcprivacy', 'Resources/check_box_selected.png', 'Resources/check_box_unselected.png', 'Resources/close.png']
+  s.resources = ['Resources/TYRZResource.bundle', 'Resources/PrivacyInfo.xcprivacy', 'Resources/check_box_selected.png', 'Resources/check_box_unselected.png', 'Resources/close.png', 'Resources/common_toast_background.png']
   s.frameworks = ['UIKit', 'SystemConfiguration', 'WebKit', 'CoreTelephony']
 
   # Flutter.framework does not contain a i386 slice.
