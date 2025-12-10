@@ -51,6 +51,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var toastView: UIView?
   private var toastHideWorkItem: DispatchWorkItem?
   private var checkboxTipText: String = "请先阅读并勾选隐私协议"
+  private var nativeToastEnabled: Bool = true
+  private var nativeToastOffsetY: CGFloat = 0
   private let checkboxHitAreaTag = 98765001
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -213,6 +215,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     let config = config ?? [:]
     // 每次配置时刷新勾选提示文案，避免复用旧值
     checkboxTipText = "请先阅读并勾选隐私协议"
+    nativeToastEnabled = (config["showNativeToast"] as? Bool) ?? true
+    nativeToastOffsetY = CGFloat((config["nativeToastCenterYOffset"] as? Double) ?? 0.0)
     let presentation = (config["presentationStyle"] as? String) ?? "fullScreen"
     let widthPercent = config["windowWidthPercent"] as? Double
     let heightPercent = config["windowHeightPercent"] as? Double
@@ -898,6 +902,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   }
 
   fileprivate func showCheckboxNotSelectedToast(in view: UIView?) {
+    guard nativeToastEnabled else { return }
     let text = checkboxTipText.trimmingCharacters(in: .whitespacesAndNewlines)
     let message = text.isEmpty ? "请先阅读并勾选隐私协议" : text
     showNativeToast(message: message, in: view)
@@ -947,7 +952,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       NSLayoutConstraint.activate([
         toast.leadingAnchor.constraint(equalTo: anchorView.leadingAnchor),
         toast.trailingAnchor.constraint(equalTo: anchorView.trailingAnchor),
-        toast.centerYAnchor.constraint(equalTo: anchorView.centerYAnchor),
+        toast.centerYAnchor.constraint(equalTo: anchorView.centerYAnchor, constant: nativeToastOffsetY),
         toast.heightAnchor.constraint(equalToConstant: height),
 
         backgroundView.leadingAnchor.constraint(equalTo: toast.leadingAnchor),

@@ -83,6 +83,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var nativeToastHideRunnable: Runnable? = null
     private var nativeToastWindowManager: WindowManager? = null
     private var currentTopActivity: Activity? = null
+    private var nativeToastEnabled: Boolean = true
+    private var nativeToastOffsetPx: Int = 0
 
     private val authActivityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: android.os.Bundle?) {
@@ -375,6 +377,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private fun createThemeConfig(config: Map<String, Any?>?, activity: Activity): GenAuthThemeConfig {
         val builder = GenAuthThemeConfig.Builder()
         checkboxTipText = "请先阅读并勾选隐私协议"
+        nativeToastEnabled = true
+        nativeToastOffsetPx = 0
         
         if (config == null) {
             dialogCornerRadii = null
@@ -711,6 +715,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             builder.setCheckTipText(tip)
             checkboxTipText = tip
         }
+        nativeToastEnabled = (config["showNativeToast"] as? Boolean) ?: true
+        nativeToastOffsetPx = ((config["nativeToastCenterYOffset"] as? Number)?.toFloat()?.let { toPx(it, ctx) } ?: 0f).toInt()
 
         // ============ 10. 授权页底部文字 ============
         // 对应 SDK API: setProvideTextSize(int, boolean)
@@ -1734,6 +1740,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     }
 
     private fun showCheckboxNotSelectedToast(anchor: ViewGroup?) {
+        if (!nativeToastEnabled) return
         val msg = checkboxTipText.trim().ifEmpty { "请先阅读并勾选隐私协议" }
         showNativeToast(msg, anchor)
     }
@@ -1821,6 +1828,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.CENTER
+                y = nativeToastOffsetPx
                 token = currentActivity.window?.decorView?.windowToken
             }
 

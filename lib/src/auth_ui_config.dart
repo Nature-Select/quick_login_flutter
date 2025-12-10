@@ -106,6 +106,8 @@ class AuthUIConfig {
     this.privacyPageFullScreen,
     this.privacyAnimation,
     this.checkTipText,
+    this.showNativeToast = true,
+    this.nativeToastCenterYOffset,
     this.webDomStorage,
     this.privacyDefaultCheck,
     this.privacyRequired = true,
@@ -350,6 +352,12 @@ class AuthUIConfig {
   /// 未勾选提示文案
   final String? checkTipText;
 
+  /// 是否展示原生 toast（复选框未勾选时）
+  final bool showNativeToast;
+
+  /// toast 相对 window 中心的 Y 轴偏移（dp，正数向下）
+  final double? nativeToastCenterYOffset;
+
   /// WebView domStorage 开关（安卓）
   final bool? webDomStorage;
 
@@ -530,6 +538,8 @@ class AuthUIConfig {
       'privacyPageFullScreen': privacyPageFullScreen,
       'privacyAnimation': privacyAnimation,
       'checkTipText': checkTipText,
+      'showNativeToast': showNativeToast,
+      'nativeToastCenterYOffset': nativeToastCenterYOffset,
       'webDomStorage': webDomStorage,
       'privacyDefaultCheck': privacyDefaultCheck,
       'privacyRequired': privacyRequired,

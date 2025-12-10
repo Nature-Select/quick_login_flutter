@@ -191,6 +191,8 @@ class _MyAppState extends State<MyApp> {
           switchButtonHeight: 20,
           switchButtonCornerRadius: 20 * 0.5,
           switchButtonSpacing: 2,
+          showNativeToast: true,
+          nativeToastCenterYOffset: -100,
         ),
       );
       setState(() {
