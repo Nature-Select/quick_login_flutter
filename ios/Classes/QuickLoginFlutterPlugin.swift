@@ -32,6 +32,15 @@ private class LoginButtonActionTarget: NSObject {
   }
 }
 
+/// 扩大勾选框点击区域的透明按钮
+private class CheckboxHitAreaButton: UIButton {
+  weak var targetCheckbox: UIControl?
+  
+  @objc func forwardTap() {
+    targetCheckbox?.sendActions(for: .touchUpInside)
+  }
+}
+
 public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var channel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
@@ -42,6 +51,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var toastView: UIView?
   private var toastHideWorkItem: DispatchWorkItem?
   private var checkboxTipText: String = "请先阅读并勾选隐私协议"
+  private let checkboxHitAreaTag = 98765001
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "quick_login_flutter", binaryMessenger: registrar.messenger())
@@ -325,6 +335,11 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
         // 确保按钮在最上层显示
         customView.addSubview(button)
         customView.bringSubviewToFront(button)
+      }
+
+      // 扩大复选框点击区域（四周各 20，保持中心不变）
+      if checkBoxFrame != .zero {
+        self.ensureCheckboxHitArea(in: customView, checkboxFrame: checkBoxFrame)
       }
     }
 
@@ -665,7 +680,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
 
     let privacyRequired = config["privacyRequired"] as? Bool ?? true
     let defaultCheck = config["privacyDefaultCheck"] as? Bool
-    model.privacyState = defaultCheck ?? privacyRequired
+    model.privacyState = defaultCheck ?? false
     model.ignorePrivacyState = !privacyRequired
 
     if let bgName = config["backgroundImage"] as? String,
@@ -697,6 +712,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
         if let checkboxView = self.findCheckbox(in: customView, frame: checkBoxFrame) {
           checkboxView.frame = targetFrame
         }
+        self.ensureCheckboxHitArea(in: customView, checkboxFrame: targetFrame)
       }
     }
 
@@ -749,7 +765,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       let frameDiff = abs(subview.frame.origin.x - frame.origin.x) +
                      abs(subview.frame.origin.y - frame.origin.y) +
                      abs(subview.frame.width - frame.width) +
-                     abs(subview.frame.height - frame.height)
+                    abs(subview.frame.height - frame.height)
       if frameDiff < 5.0 {
         return subview
       }
@@ -758,6 +774,34 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       }
     }
     return nil
+  }
+  
+  private func ensureCheckboxHitArea(in customView: UIView, checkboxFrame: CGRect) {
+    guard checkboxFrame != .zero else { return }
+    guard let checkboxView = findCheckbox(in: customView, frame: checkboxFrame) else { return }
+
+    let targetSize = CGSize(width: checkboxFrame.width + 40, height: checkboxFrame.height + 40)
+    let center = CGPoint(x: checkboxFrame.midX, y: checkboxFrame.midY)
+    let targetFrame = CGRect(
+      x: center.x - targetSize.width / 2,
+      y: center.y - targetSize.height / 2,
+      width: targetSize.width,
+      height: targetSize.height
+    )
+
+    if let overlay = customView.viewWithTag(checkboxHitAreaTag) as? CheckboxHitAreaButton {
+      overlay.frame = targetFrame
+      overlay.targetCheckbox = checkboxView as? UIControl
+    } else {
+      let overlay = CheckboxHitAreaButton(type: .custom)
+      overlay.tag = checkboxHitAreaTag
+      overlay.backgroundColor = .clear
+      overlay.frame = targetFrame
+      overlay.targetCheckbox = checkboxView as? UIControl
+      overlay.addTarget(overlay, action: #selector(CheckboxHitAreaButton.forwardTap), for: .touchUpInside)
+      customView.addSubview(overlay)
+      customView.bringSubviewToFront(overlay)
+    }
   }
   
   private func loadImage(named name: String) -> UIImage? {
