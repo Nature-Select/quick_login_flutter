@@ -68,6 +68,8 @@ class QuickLoginFlutter {
   ///   - [QuickLoginEventKeys.eventTypeSwitchToSmsLogin]: 用户点击了切换到验证码登录按钮
   ///   - [QuickLoginEventKeys.eventTypeLoginCallback]: 登录回调事件
   ///   - [QuickLoginEventKeys.eventTypeCheckboxNotChecked]: 用户点击登录但未勾选隐私协议
+  ///   - [QuickLoginEventKeys.eventTypeAuthPageShown]: 原生授权页已弹出
+  ///   - [QuickLoginEventKeys.eventTypeAuthPageClosed]: 原生授权页已关闭
   /// - [QuickLoginEventKeys.payload]: 事件携带的数据（对于某些事件类型）
   /// 
   /// 使用示例：

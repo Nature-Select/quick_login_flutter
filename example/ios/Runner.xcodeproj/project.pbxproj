@@ -469,22 +469,22 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-					DEVELOPMENT_TEAM = "";
-					"DEVELOPMENT_TEAM[sdk=iphoneos*]" = "";
-					ENABLE_BITCODE = NO;
-					INFOPLIST_FILE = Runner/Info.plist;
-					INFOPLIST_KEY_CFBundleDisplayName = "Quick Login Example";
-					IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = VLLN8CV2SP;
+				ENABLE_BITCODE = NO;
+				INFOPLIST_FILE = Runner/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Quick Login Example";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-					PRODUCT_BUNDLE_IDENTIFIER = com.example.quickloginflutter;
-					PRODUCT_NAME = "$(TARGET_NAME)";
-					PROVISIONING_PROFILE_SPECIFIER = "";
-					"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
+				PRODUCT_BUNDLE_IDENTIFIER = com.tyrell.eve;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "eve-app-dev";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -658,54 +658,54 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-					DEVELOPMENT_TEAM = "";
-					"DEVELOPMENT_TEAM[sdk=iphoneos*]" = "";
-					ENABLE_BITCODE = NO;
-					INFOPLIST_FILE = Runner/Info.plist;
-					INFOPLIST_KEY_CFBundleDisplayName = "Quick Login Example";
-					IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = VLLN8CV2SP;
+				ENABLE_BITCODE = NO;
+				INFOPLIST_FILE = Runner/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Quick Login Example";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-					PRODUCT_BUNDLE_IDENTIFIER = com.example.quickloginflutter;
-					PRODUCT_NAME = "$(TARGET_NAME)";
-					PROVISIONING_PROFILE_SPECIFIER = "";
-					"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
-					SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
-					SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-					SWIFT_VERSION = 5.0;
-					VERSIONING_SYSTEM = "apple-generic";
-				};
-				name = Debug;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tyrell.eve;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "eve-app-dev";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				VERSIONING_SYSTEM = "apple-generic";
 			};
-			97C147071CF9000F007C117D /* Release */ = {
+			name = Debug;
+		};
+		97C147071CF9000F007C117D /* Release */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-					"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
-					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-					DEVELOPMENT_TEAM = "";
-					"DEVELOPMENT_TEAM[sdk=iphoneos*]" = "";
-					ENABLE_BITCODE = NO;
-					INFOPLIST_FILE = Runner/Info.plist;
-					INFOPLIST_KEY_CFBundleDisplayName = "Quick Login Example";
-					IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = VLLN8CV2SP;
+				ENABLE_BITCODE = NO;
+				INFOPLIST_FILE = Runner/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Quick Login Example";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-					PRODUCT_BUNDLE_IDENTIFIER = com.example.quickloginflutter;
-					PRODUCT_NAME = "$(TARGET_NAME)";
-					PROVISIONING_PROFILE_SPECIFIER = "";
-					"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
-					SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
-					SWIFT_VERSION = 5.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tyrell.eve;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "eve-app-dev";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;

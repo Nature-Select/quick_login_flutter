@@ -54,6 +54,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var nativeToastEnabled: Bool = true
   private var nativeToastOffsetY: CGFloat = 0
   private let checkboxHitAreaTag = 98765001
+  private var authPageClosedEmitted: Bool = false
+  private var authPageShown: Bool = false
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "quick_login_flutter", binaryMessenger: registrar.messenger())
@@ -76,7 +78,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     case "login":
       handleLogin(call: call, result: result)
     case "dismiss":
-      UAFSDKLogin.share.ua_dismissViewController(animated: true, completion: nil)
+      dismissAuthPageAndEmit()
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
@@ -149,6 +151,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       return
     }
 
+    authPageClosedEmitted = false
+    authPageShown = false
     pendingResult = result
     let timeoutMs = (call.arguments as? [String: Any])?["timeoutMs"] as? Int
     if let timeoutMs = timeoutMs {
@@ -168,11 +172,28 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
         function(UAFSDKLogin.share, selector, model) { [weak self] payload in
           guard let self = self else { return }
           DispatchQueue.main.async {
-            // 1) 事件通道透传每一次原生回调，便于 Dart 层监听
+            // 1) 处理授权页弹出事件（resultCode=200087），只发该事件，不透传 loginCallback，也不结束 pendingResult
+            if let payloadDict = payload as? [String: Any],
+               let rc = self.resultCodeString(from: payloadDict),
+               rc == "200087" {
+              self.authPageShown = true
+              self.eventSink?(["event": "authPageShown"])
+              return
+            }
+
+            // 2) 授权页关闭（200020）只发送关闭事件
+            if let payloadDict = payload as? [String: Any],
+               let rc = self.resultCodeString(from: payloadDict),
+               rc == "200020" {
+              self.emitAuthPageClosedIfNeeded()
+              return
+            }
+
+            // 3) 其他回调视为关闭并透传登录回调
+            self.emitAuthPageClosedIfNeeded()
             if let sink = self.eventSink {
               sink(["event": "loginCallback", "payload": payload ?? [:]])
             }
-            // 2) 首次回调用于完成当前 methodChannel 调用
             if let result = self.pendingResult {
               result(payload)
               self.pendingResult = nil
@@ -209,6 +230,26 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       return topViewController(from: presented)
     }
     return root
+  }
+
+  private func emitAuthPageClosedIfNeeded() {
+    if authPageClosedEmitted { return }
+    authPageClosedEmitted = true
+    authPageShown = false
+    DispatchQueue.main.async { [weak self] in
+      if let result = self?.pendingResult {
+        result(FlutterError(code: "user_cancelled", message: "Authorization page closed", details: nil))
+        self?.pendingResult = nil
+      }
+      self?.eventSink?(["event": "authPageClosed"])
+    }
+  }
+
+  private func resultCodeString(from payload: [String: Any]) -> String? {
+    let rcValue = payload["resultCode"]
+    if let s = rcValue as? String { return s }
+    if let n = rcValue as? NSNumber { return n.stringValue }
+    return nil
   }
 
   private func applyUiConfig(_ config: [String: Any]?, model: UAFCustomModel) {
@@ -732,9 +773,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   
   @objc private func onCloseButtonTapped() {
     // 关闭授权页
-    DispatchQueue.main.async {
-      UAFSDKLogin.share.ua_dismissViewController(animated: true, completion: nil)
-    }
+    dismissAuthPageAndEmit()
   }
   
   /// 在视图层次结构中查找位于指定 frame 的登录按钮
@@ -802,6 +841,14 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       overlay.addTarget(overlay, action: #selector(CheckboxHitAreaButton.forwardTap), for: .touchUpInside)
       customView.addSubview(overlay)
       customView.bringSubviewToFront(overlay)
+    }
+  }
+
+  private func dismissAuthPageAndEmit() {
+    DispatchQueue.main.async { [weak self] in
+      UAFSDKLogin.share.ua_dismissViewController(animated: true, completion: { [weak self] in
+        self?.emitAuthPageClosedIfNeeded()
+      })
     }
   }
   

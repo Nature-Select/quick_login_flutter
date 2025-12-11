@@ -46,11 +46,22 @@ class _MyAppState extends State<MyApp> {
     _eventSubscription = _plugin.getEventStream().listen((event) {
       final eventType = event[QuickLoginEventKeys.event];
       if (eventType == QuickLoginEventKeys.eventTypeSwitchToSmsLogin) {
-        // 收到更换按钮点击事件，关闭授权页面
+        setState(() {
+          _status = '切换到其他登录方式';
+        });
         _dismiss();
+      } else if (eventType == QuickLoginEventKeys.eventTypeAuthPageShown) {
+        setState(() {
+          _status = '授权页已弹出';
+        });
+      } else if (eventType == QuickLoginEventKeys.eventTypeAuthPageClosed) {
+        setState(() {
+          _status = '授权页已关闭';
+        });
       } else if (eventType == QuickLoginEventKeys.eventTypeCheckboxNotChecked) {
-        // 收到复选框未勾选事件，弹出 Toast 提示
-        // BotToast.showText(text: '请先阅读并勾选隐私协议', align: Alignment.center);
+        setState(() {
+          _status = '请先勾选隐私协议';
+        });
       } else if (eventType == QuickLoginEventKeys.eventTypeLoginCallback) {
         // 收到登录回调事件
         final payload = event[QuickLoginEventKeys.payload];
@@ -80,12 +91,10 @@ class _MyAppState extends State<MyApp> {
       setState(() {
         _initialised = true;
         _status = 'SDK 初始化完成';
-        print('SDK 初始化完成');
       });
     } catch (e) {
       setState(() {
         _status = '初始化失败: $e';
-        print('初始化失败: $e');
       });
     }
   }
@@ -197,12 +206,10 @@ class _MyAppState extends State<MyApp> {
       );
       setState(() {
         _status = '授权结果: ${result.raw}';
-        print('授权结果: ${result.raw}');
       });
     } catch (e) {
       setState(() {
         _status = '授权失败: $e';
-        print('授权失败: $e');
       });
     }
   }
@@ -285,39 +292,18 @@ class _MyAppState extends State<MyApp> {
               padding: const EdgeInsets.all(16),
               child: ListView(
                 children: [
-                  TextField(
-                    controller: _appIdController,
-                    decoration: const InputDecoration(labelText: 'APP ID'),
-                  ),
-                  TextField(
-                    controller: _appKeyController,
-                    decoration: const InputDecoration(labelText: 'APP Key'),
-                  ),
+                  TextField(controller: _appIdController, decoration: const InputDecoration(labelText: 'APP ID')),
+                  TextField(controller: _appKeyController, decoration: const InputDecoration(labelText: 'APP Key')),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
-                      ElevatedButton(
-                        onPressed: _initSdk,
-                        child: const Text('初始化 SDK'),
-                      ),
-                      ElevatedButton(
-                        onPressed: _initialised ? _prefetch : null,
-                        child: const Text('预取号'),
-                      ),
-                      ElevatedButton(
-                        onPressed: _initialised ? _login : null,
-                        child: const Text('弹出授权页'),
-                      ),
-                      OutlinedButton(
-                        onPressed: _dismiss,
-                        child: const Text('关闭授权页'),
-                      ),
-                      ElevatedButton(
-                        onPressed: _testNetworkRequest,
-                        child: const Text('网络请求测试'),
-                      ),
+                      ElevatedButton(onPressed: _initSdk, child: const Text('初始化 SDK')),
+                      ElevatedButton(onPressed: _initialised ? _prefetch : null, child: const Text('预取号')),
+                      ElevatedButton(onPressed: _initialised ? _login : null, child: const Text('弹出授权页')),
+                      OutlinedButton(onPressed: _dismiss, child: const Text('关闭授权页')),
+                      ElevatedButton(onPressed: _testNetworkRequest, child: const Text('网络请求测试')),
                     ],
                   ),
                   const SizedBox(height: 16),

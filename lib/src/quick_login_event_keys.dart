@@ -22,4 +22,10 @@ class QuickLoginEventKeys {
 
   /// 事件类型：复选框未勾选（用户点击登录但未勾选隐私协议）
   static const String eventTypeCheckboxNotChecked = 'checkboxNotChecked';
+
+  /// 事件类型：授权页已弹出（Android 通过 Activity 生命周期触发，iOS 通过回调 resultCode=successGetAuthVCCode 触发）
+  static const String eventTypeAuthPageShown = 'authPageShown';
+
+  /// 事件类型：授权页已关闭（Android Activity 销毁或主动 dismiss，iOS 收到登录回调/主动 dismiss）
+  static const String eventTypeAuthPageClosed = 'authPageClosed';
 }

@@ -85,6 +85,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var currentTopActivity: Activity? = null
     private var nativeToastEnabled: Boolean = true
     private var nativeToastOffsetPx: Int = 0
+    private var authPageShownEmitted: Boolean = false
+    private var authPageClosedEmitted: Boolean = false
 
     private val authActivityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: android.os.Bundle?) {
@@ -98,6 +100,12 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             maybeApplyAuthBackground(activity)
             maybeConfigureWebView(activity)
             currentTopActivity = activity
+            if (activity is GenLoginAuthActivity && !authPageShownEmitted) {
+                authPageShownEmitted = true
+                mainHandler.post {
+                    eventSink?.success(mapOf("event" to "authPageShown"))
+                }
+            }
         }
 
         override fun onActivityPaused(activity: Activity) {
@@ -110,6 +118,10 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         override fun onActivityDestroyed(activity: Activity) {
             if (currentTopActivity == activity) {
                 currentTopActivity = null
+            }
+            if (activity is GenLoginAuthActivity) {
+                emitAuthPageClosedIfNeeded()
+                authPageShownEmitted = false
             }
         }
     }
@@ -307,6 +319,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         pendingResult = result
         val timeoutMs = (call.argument<Number>("timeoutMs")?.toInt()) ?: 10000
         val uiConfig = call.argument<Map<String, Any?>>("uiConfig")
+        authPageShownEmitted = false
+        authPageClosedEmitted = false
 
         mainHandler.post {
             try {
@@ -321,6 +335,12 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                     override fun onGetTokenComplete(code: Int, jsonObject: JSONObject?) {
                         mainHandler.post {
                             val response = jsonObjectToMap(jsonObject)
+                            val resultCode = response["resultCode"]?.toString()
+                            // 登录页被关闭，发送关闭事件并中断后续回调
+                            if (resultCode == "200020") {
+                                emitAuthPageClosedIfNeeded()
+                                return@post
+                            }
                             // 发送事件到 Flutter
                             eventSink?.success(mapOf("event" to "loginCallback", "payload" to response))
                             // 完成方法调用
@@ -346,6 +366,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 if (ctx != null && appId != null) {
                     val helper = GenAuthnHelper.getInstance(ctx, appId)
                     helper.quitAuthActivity()
+                    emitAuthPageClosedIfNeeded()
                 }
                 result.success(null)
             } catch (e: Exception) {
@@ -1020,6 +1041,18 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     override fun onCancel(arguments: Any?) {
         eventSink = null
+    }
+
+    private fun emitAuthPageClosedIfNeeded() {
+        if (authPageClosedEmitted) return
+        val hasShown = authPageShownEmitted || currentTopActivity is GenLoginAuthActivity
+        if (!hasShown) return
+        authPageClosedEmitted = true
+        mainHandler.post {
+            pendingResult?.error("user_cancelled", "Authorization page closed", null)
+            pendingResult = null
+            eventSink?.success(mapOf("event" to "authPageClosed"))
+        }
     }
 
     private fun registerLifecycleCallbacks() {
