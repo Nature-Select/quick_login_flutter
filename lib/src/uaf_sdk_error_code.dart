@@ -31,6 +31,9 @@ class UAFSDKErrorCode {
   /// 无SIM卡
   static const String phoneWithoutSIM = '200048';
 
+  /// 无法识别sim卡或没有sim卡
+  static const String unrecognizedSIM = '200010';
+
   /// Socket创建或发送接收数据失败
   static const String socketError = '200050';
 
