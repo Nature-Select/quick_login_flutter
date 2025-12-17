@@ -34,6 +34,9 @@ class UAFSDKErrorCode {
   /// 无法识别sim卡或没有sim卡
   static const String unrecognizedSIM = '200010';
 
+  /// 蜂窝未开启或不稳定 (operatortype: 0)
+  static const String nonCellularNetworkDetail = '200027';
+
   /// Socket创建或发送接收数据失败
   static const String socketError = '200050';
 
