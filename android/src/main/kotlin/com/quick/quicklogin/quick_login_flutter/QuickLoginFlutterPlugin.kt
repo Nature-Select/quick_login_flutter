@@ -1415,7 +1415,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             newButton.foreground = createRippleDrawable(radius)
         }
-        newButton.elevation = 100f
+        newButton.elevation = 0f
 
         contentRoot.addView(newButton)
         newButton.bringToFront()
@@ -1655,7 +1655,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         // 创建关闭按钮
         val closeButton = ImageView(ctx).apply {
             this.tag = tagKey
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            scaleType = ImageView.ScaleType.FIT_CENTER
 
             // 加载关闭按钮图片
             val imageName = config.imageName ?: "close"
