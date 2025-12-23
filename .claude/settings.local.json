@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter clean:*)",
+      "Bash(rm:*)",
+      "Bash(pod install:*)",
+      "Bash(flutter pub get:*)"
+    ]
+  }
+}

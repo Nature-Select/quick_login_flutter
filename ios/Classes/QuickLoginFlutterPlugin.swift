@@ -266,8 +266,15 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     let windowCornerRadius = config["windowCornerRadius"] as? Double
     let windowCornerRadiusTopLeft = config["windowCornerRadiusTopLeft"] as? Double
     let windowCornerRadiusTopRight = config["windowCornerRadiusTopRight"] as? Double
-    let checkboxOffsetX = config["checkboxOffsetX"] as? Double
-    let checkboxOffsetY = config["checkboxOffsetY"] as? Double
+    func doubleValue(from any: Any?) -> Double? {
+      if let number = any as? NSNumber { return number.doubleValue }
+      if let double = any as? Double { return double }
+      if let int = any as? Int { return Double(int) }
+      return nil
+    }
+
+    let checkboxOffsetX = doubleValue(from: config["checkboxOffsetX"])
+    let checkboxOffsetY = doubleValue(from: config["checkboxOffsetY"])
     let defaultCheckedImageName = "check_box_selected"
     let defaultUncheckedImageName = "check_box_unselected"
     let presentAnimated = config["presentAnimated"] as? Bool ?? true
@@ -608,8 +615,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       model.privacyOffsetY_B = NSNumber(value: privacyOffsetBottom)
     }
 
-    let privacyMarginLeft = config["privacyMarginLeft"] as? Double
-    let privacyMarginRight = config["privacyMarginRight"] as? Double
+    let privacyMarginLeft = doubleValue(from: config["privacyMarginLeft"])
+    let privacyMarginRight = doubleValue(from: config["privacyMarginRight"])
     if privacyMarginLeft != nil || privacyMarginRight != nil {
       model.appPrivacyOriginLR = [NSNumber(value: privacyMarginLeft ?? 0), NSNumber(value: privacyMarginRight ?? 0)]
     }
@@ -758,6 +765,19 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       }
     }
 
+    // 隐私区：当「复选框 + 间距 + 文本」总宽度小于登录按钮宽度时，整体保持间距不变并居中展示（y 不变）。
+    let previousAuthViewBlock = model.authViewBlock
+    model.authViewBlock = { [weak self] customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame in
+      previousAuthViewBlock?(customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame)
+      guard let self = self, let customView = customView else { return }
+      // 仅当显式传入 privacyMarginLeft=0 且 checkboxOffsetX=0 时启用自动居中；否则保持原有布局逻辑
+      guard let privacyMarginLeft = privacyMarginLeft,
+            let checkboxOffsetX = checkboxOffsetX,
+            privacyMarginLeft == 0,
+            checkboxOffsetX == 0 else { return }
+      self.centerPrivacyAreaIfNeeded(in: customView, loginBtnFrame: loginBtnFrame, checkBoxFrame: checkBoxFrame, privacyFrame: privacyFrame)
+    }
+
     if let languageIndex = config["appLanguageType"] as? Int,
        let language = UALanguageType(rawValue: UInt(languageIndex + 1)) {
       model.appLanguageType = language
@@ -810,6 +830,147 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
         return subview
       }
       if let found = findCheckbox(in: subview, frame: frame) {
+        return found
+      }
+    }
+    return nil
+  }
+
+  private func centerPrivacyAreaIfNeeded(in customView: UIView, loginBtnFrame: CGRect, checkBoxFrame: CGRect, privacyFrame: CGRect) {
+    guard loginBtnFrame != .zero, checkBoxFrame != .zero, privacyFrame != .zero else { return }
+
+    let checkboxView: UIView? = {
+      if let view = findSubview(in: customView, matchingFrame: checkBoxFrame, in: customView, predicate: { $0 is UIControl }) {
+        return view
+      }
+      if let overlay = customView.viewWithTag(checkboxHitAreaTag) as? CheckboxHitAreaButton,
+         let targetCheckbox = overlay.targetCheckbox {
+        return targetCheckbox
+      }
+      return findCheckbox(in: customView, frame: checkBoxFrame)
+    }()
+    guard let checkboxView = checkboxView else { return }
+
+    let privacyContainerView = findSubview(in: customView, matchingFrame: privacyFrame, in: customView) ?? findView(in: customView, frame: privacyFrame)
+    guard let privacyContainerView = privacyContainerView else { return }
+
+    let privacyTextView: UIView? = {
+      if privacyContainerView is UITextView || privacyContainerView is UILabel { return privacyContainerView }
+      return findTextViewOrLabel(in: privacyContainerView)
+    }()
+    guard let privacyTextView = privacyTextView, let metrics = privacyTextMetrics(for: privacyTextView) else { return }
+
+    let checkboxFrameInCustom = checkboxView.convert(checkboxView.bounds, to: customView)
+    let privacyTextFrameInCustom = privacyTextView.convert(privacyTextView.bounds, to: customView)
+    let textStartX = privacyTextFrameInCustom.minX + metrics.startOffsetX
+    let textEndX = textStartX + metrics.textWidth
+
+    let contentLeft = min(checkboxFrameInCustom.minX, textStartX)
+    let contentRight = max(checkboxFrameInCustom.maxX, textEndX)
+    let contentWidth = contentRight - contentLeft
+    guard contentWidth.isFinite, contentWidth > 0 else { return }
+
+    let loginWidth = loginBtnFrame.width
+    guard loginWidth.isFinite, loginWidth > 0 else { return }
+
+    // 仅当内容更窄时居中，避免影响自动换行场景
+    guard contentWidth < loginWidth else { return }
+
+    let desiredLeft = loginBtnFrame.minX + (loginWidth - contentWidth) / 2
+    let deltaX = desiredLeft - contentLeft
+    guard deltaX.isFinite, abs(deltaX) > 0.5 else { return }
+
+    checkboxView.frame = checkboxView.frame.offsetBy(dx: deltaX, dy: 0)
+    privacyContainerView.frame = privacyContainerView.frame.offsetBy(dx: deltaX, dy: 0)
+    if let overlay = customView.viewWithTag(checkboxHitAreaTag) {
+      overlay.frame = overlay.frame.offsetBy(dx: deltaX, dy: 0)
+    }
+  }
+
+  private func privacyTextMetrics(for view: UIView) -> (startOffsetX: CGFloat, textWidth: CGFloat)? {
+    if let label = view as? UILabel {
+      if let attributed = label.attributedText, attributed.length > 0 {
+        let rect = attributed.boundingRect(
+          with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+          options: [.usesLineFragmentOrigin, .usesFontLeading],
+          context: nil
+        )
+        return (0, ceil(rect.width))
+      }
+      if let text = label.text, !text.isEmpty {
+        let font = label.font ?? UIFont.systemFont(ofSize: 12)
+        let rect = (text as NSString).boundingRect(
+          with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+          options: [.usesLineFragmentOrigin, .usesFontLeading],
+          attributes: [.font: font],
+          context: nil
+        )
+        return (0, ceil(rect.width))
+      }
+      return nil
+    }
+
+    if let textView = view as? UITextView {
+      guard let attributed = textView.attributedText, attributed.length > 0 else { return nil }
+      let rect = attributed.boundingRect(
+        with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading],
+        context: nil
+      )
+      let startOffset = textView.textContainerInset.left + textView.textContainer.lineFragmentPadding
+      return (startOffset, ceil(rect.width))
+    }
+
+    return nil
+  }
+
+  private func findTextViewOrLabel(in view: UIView) -> UIView? {
+    for subview in view.subviews {
+      if subview is UITextView || subview is UILabel {
+        return subview
+      }
+      if let found = findTextViewOrLabel(in: subview) {
+        return found
+      }
+    }
+    return nil
+  }
+
+  private func findSubview(
+    in view: UIView,
+    matchingFrame frame: CGRect,
+    in coordinateSpace: UIView,
+    tolerance: CGFloat = 5.0,
+    predicate: ((UIView) -> Bool)? = nil
+  ) -> UIView? {
+    for subview in view.subviews {
+      if predicate?(subview) ?? true {
+        let frameInSpace = subview.convert(subview.bounds, to: coordinateSpace)
+        let frameDiff = abs(frameInSpace.origin.x - frame.origin.x) +
+                       abs(frameInSpace.origin.y - frame.origin.y) +
+                       abs(frameInSpace.width - frame.width) +
+                       abs(frameInSpace.height - frame.height)
+        if frameDiff < tolerance {
+          return subview
+        }
+      }
+      if let found = findSubview(in: subview, matchingFrame: frame, in: coordinateSpace, tolerance: tolerance, predicate: predicate) {
+        return found
+      }
+    }
+    return nil
+  }
+
+  private func findView(in view: UIView, frame: CGRect) -> UIView? {
+    for subview in view.subviews {
+      let frameDiff = abs(subview.frame.origin.x - frame.origin.x) +
+                     abs(subview.frame.origin.y - frame.origin.y) +
+                     abs(subview.frame.width - frame.width) +
+                     abs(subview.frame.height - frame.height)
+      if frameDiff < 5.0 {
+        return subview
+      }
+      if let found = findView(in: subview, frame: frame) {
         return found
       }
     }
