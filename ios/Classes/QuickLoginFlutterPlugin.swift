@@ -9,25 +9,40 @@ private class LoginButtonActionTarget: NSObject {
   weak var customView: UIView?
   var checkBoxFrame: CGRect = .zero
   var eventSink: FlutterEventSink?
+  var eventSinkProvider: (() -> FlutterEventSink?)?
+  var checkboxHitAreaTag: Int = 0
   var findCheckboxFunc: ((UIView, CGRect) -> UIView?)?
   weak var plugin: QuickLoginFlutterPlugin?
 
   @objc func triggerNativeButton(_ sender: UIButton) {
-    // 检查复选框是否勾选
-    if let customView = customView,
-       let checkboxView = findCheckboxFunc?(customView, checkBoxFrame),
-       let checkboxButton = checkboxView as? UIButton {
-      // 检测复选框是否被选中（通过 isSelected 属性）
-      if !checkboxButton.isSelected {
-        DispatchQueue.main.async { [weak self] in
-          // 原生弹出提示，避免 Flutter 侧被覆盖
-          self?.plugin?.showCheckboxNotSelectedToast(in: customView)
-          // 继续发送事件，保持 Dart 侧兼容
-          self?.eventSink?(["event": "checkboxNotChecked"])
-        }
-        return
-      }
+    guard let customView = customView else {
+      nativeButton?.sendActions(for: .touchUpInside)
+      return
     }
+
+    // 检查复选框是否勾选：
+    // 1) 优先使用扩大点击区域 overlay 绑定的 targetCheckbox（布局调整后 frame 可能变化）
+    // 2) 回退使用基于 frame 的查找
+    let checkboxControl: UIControl? = {
+      if checkboxHitAreaTag != 0,
+         let overlay = customView.viewWithTag(checkboxHitAreaTag) as? CheckboxHitAreaButton,
+         let targetCheckbox = overlay.targetCheckbox {
+        return targetCheckbox
+      }
+      return findCheckboxFunc?(customView, checkBoxFrame) as? UIControl
+    }()
+
+    if let checkboxControl = checkboxControl, !checkboxControl.isSelected {
+      DispatchQueue.main.async { [weak self] in
+        // 原生弹出提示，避免 Flutter 侧被覆盖
+        self?.plugin?.showCheckboxNotSelectedToast(in: customView)
+        // 继续发送事件，保持 Dart 侧兼容（eventSink 可能在 onListen 后才可用）
+        let sink = self?.eventSinkProvider?() ?? self?.eventSink
+        sink?(["event": "checkboxNotChecked"])
+      }
+      return
+    }
+
     nativeButton?.sendActions(for: .touchUpInside)
   }
 }
@@ -531,6 +546,10 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
           actionTarget.customView = customView
           actionTarget.checkBoxFrame = checkBoxFrame
           actionTarget.eventSink = self.eventSink
+          actionTarget.eventSinkProvider = { [weak self] in
+            return self?.eventSink
+          }
+          actionTarget.checkboxHitAreaTag = self.checkboxHitAreaTag
           actionTarget.findCheckboxFunc = self.findCheckbox
           actionTarget.plugin = self
 
