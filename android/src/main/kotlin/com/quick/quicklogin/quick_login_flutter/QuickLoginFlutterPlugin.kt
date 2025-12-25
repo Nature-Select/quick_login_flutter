@@ -16,6 +16,10 @@ import android.util.Log
 import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.PixelFormat
+import android.text.Layout
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -47,6 +51,7 @@ import com.cmic.gen.sdk.view.GenAuthThemeConfig
 import com.cmic.gen.sdk.view.GenLoginAuthActivity
 import org.json.JSONObject
 import java.util.ArrayDeque
+import kotlin.math.abs
 
 /**
  * QuickLoginFlutterPlugin
@@ -76,6 +81,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var customCheckboxConfig: CustomCheckboxConfig? = null
     private var customSmsLoginButtonConfig: CustomSmsLoginButtonConfig? = null
     private var customCloseButtonConfig: CustomCloseButtonConfig? = null
+    private var autoCenterPrivacyAreaEnabled: Boolean = false
+    private var privacyAreaCenteredApplied: Boolean = false
     private var lifecycleRegistered = false
     private val debugTag = "QLCustomBtn"
     private var checkboxTipText: String = "请先阅读并勾选隐私协议"
@@ -321,6 +328,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val uiConfig = call.argument<Map<String, Any?>>("uiConfig")
         authPageShownEmitted = false
         authPageClosedEmitted = false
+        privacyAreaCenteredApplied = false
 
         mainHandler.post {
             try {
@@ -400,6 +408,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         checkboxTipText = "请先阅读并勾选隐私协议"
         nativeToastEnabled = true
         nativeToastOffsetPx = 0
+        autoCenterPrivacyAreaEnabled = false
+        privacyAreaCenteredApplied = false
         
         if (config == null) {
             dialogCornerRadii = null
@@ -408,6 +418,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             customCheckboxConfig = null
             customSmsLoginButtonConfig = null
             customCloseButtonConfig = null
+            autoCenterPrivacyAreaEnabled = false
+            privacyAreaCenteredApplied = false
             return builder.build()
         }
 
@@ -698,6 +710,11 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             val right = privacyMarginRight?.toFloat() ?: 0f
             builder.setPrivacyMargin(left.toInt(), right.toInt())
         }
+        autoCenterPrivacyAreaEnabled =
+            privacyMarginLeft != null &&
+            privacyMarginLeft.toFloat() == 0f &&
+            checkboxOffsetX != null &&
+            checkboxOffsetX.toFloat() == 0f
 
         // 对应 SDK API: setPrivacyState(boolean)
         config["privacyDefaultCheck"]?.let {
@@ -1074,27 +1091,36 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
         val radii = dialogCornerRadii
         val color = authBackgroundColor
-        if (radii == null && color == null) return
+        val needBackground = radii != null || color != null
+        val needCustom = customLoginButtonConfig != null ||
+            customCheckboxConfig != null ||
+            customSmsLoginButtonConfig != null ||
+            customCloseButtonConfig != null ||
+            autoCenterPrivacyAreaEnabled
+        if (!needBackground && !needCustom) return
 
         val root = activity.findViewById<ViewGroup?>(android.R.id.content) ?: return
         val target: View = if (root.childCount > 0) root.getChildAt(0) else root
 
-        val background = GradientDrawable().apply {
-            setColor(color ?: Color.WHITE)
-            if (radii != null) {
-                cornerRadii = radii
+        if (needBackground) {
+            val background = GradientDrawable().apply {
+                setColor(color ?: Color.WHITE)
+                if (radii != null) {
+                    cornerRadii = radii
+                }
             }
-        }
-        target.background = background
-        if (radii != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            target.clipToOutline = true
-            target.outlineProvider = ViewOutlineProvider.BACKGROUND
+            target.background = background
+            if (radii != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                target.clipToOutline = true
+                target.outlineProvider = ViewOutlineProvider.BACKGROUND
+            }
         }
 
         maybeApplyCustomLoginButton(target as? ViewGroup ?: root)
         maybeApplyCustomCheckbox(target as? ViewGroup ?: root)
         maybeApplyCustomSmsLoginButton(target as? ViewGroup ?: root)
         maybeApplyCustomCloseButton(target as? ViewGroup ?: root)
+        maybeCenterPrivacyArea(target as? ViewGroup ?: root)
     }
 
     /**
@@ -1330,6 +1356,223 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     private fun maybeApplyCustomCloseButton(container: ViewGroup) {
         applyCustomCloseButton(container, 3)
+    }
+
+    private fun maybeCenterPrivacyArea(container: ViewGroup) {
+        if (!autoCenterPrivacyAreaEnabled) return
+        if (privacyAreaCenteredApplied) return
+        applyCenterPrivacyArea(container, 6)
+    }
+
+    private fun applyCenterPrivacyArea(container: ViewGroup, attempts: Int) {
+        if (!autoCenterPrivacyAreaEnabled) return
+        if (privacyAreaCenteredApplied) return
+
+        val contentRoot = container.rootView.findViewById<ViewGroup?>(android.R.id.content) ?: container
+        val loginBtn = findLoginButtonForPrivacyCentering(contentRoot)
+        val checkbox = findNativeCheckbox(contentRoot)
+        if (loginBtn == null || checkbox == null) {
+            if (attempts > 0) {
+                mainHandler.postDelayed({ applyCenterPrivacyArea(container, attempts - 1) }, 50)
+            } else {
+                privacyAreaCenteredApplied = true
+            }
+            return
+        }
+
+        val privacyTextView = findPrivacyTextViewForCheckbox(contentRoot, checkbox)
+        if (privacyTextView == null) {
+            if (attempts > 0) {
+                mainHandler.postDelayed({ applyCenterPrivacyArea(container, attempts - 1) }, 50)
+            } else {
+                privacyAreaCenteredApplied = true
+            }
+            return
+        }
+
+        val groupContainer = lowestCommonAncestor(checkbox, privacyTextView)
+        if (groupContainer == null || isAncestor(groupContainer, loginBtn)) {
+            logDebug(
+                "privacy_center_container_invalid",
+                mapOf(
+                    "group" to (groupContainer?.javaClass?.simpleName ?: "null"),
+                    "group_contains_login" to (groupContainer?.let { isAncestor(it, loginBtn) } ?: false)
+                )
+            )
+            privacyAreaCenteredApplied = true
+            return
+        }
+
+        if (loginBtn.width == 0 || loginBtn.height == 0 ||
+            checkbox.width == 0 || checkbox.height == 0 ||
+            privacyTextView.width == 0 || privacyTextView.height == 0 ||
+            privacyTextView.layout == null
+        ) {
+            if (attempts > 0) {
+                mainHandler.postDelayed({ applyCenterPrivacyArea(container, attempts - 1) }, 50)
+            } else {
+                privacyAreaCenteredApplied = true
+            }
+            return
+        }
+
+        val rootPos = IntArray(2)
+        contentRoot.getLocationOnScreen(rootPos)
+
+        val loginRect = Rect()
+        val cbRect = Rect()
+        val tvRect = Rect()
+        val loginVisible = loginBtn.getGlobalVisibleRect(loginRect)
+        val cbVisible = checkbox.getGlobalVisibleRect(cbRect)
+        val tvVisible = privacyTextView.getGlobalVisibleRect(tvRect)
+        if (!loginVisible || !cbVisible || !tvVisible) {
+            if (attempts > 0) {
+                mainHandler.postDelayed({ applyCenterPrivacyArea(container, attempts - 1) }, 50)
+            } else {
+                privacyAreaCenteredApplied = true
+            }
+            return
+        }
+
+        val loginWidth = loginRect.width().toFloat()
+        if (!loginWidth.isFinite() || loginWidth <= 0f) {
+            privacyAreaCenteredApplied = true
+            return
+        }
+
+        val textWidth = desiredSingleLineTextWidth(privacyTextView)
+        if (textWidth == null || !textWidth.isFinite() || textWidth <= 0f) {
+            privacyAreaCenteredApplied = true
+            return
+        }
+
+        val lineLeft = privacyTextView.layout?.getLineLeft(0) ?: 0f
+        val loginLeft = (loginRect.left - rootPos[0]).toFloat()
+        val cbLeft = (cbRect.left - rootPos[0]).toFloat()
+        val cbRight = (cbRect.right - rootPos[0]).toFloat()
+        val tvLeft = (tvRect.left - rootPos[0]).toFloat()
+        val textStartX = tvLeft + privacyTextView.totalPaddingLeft.toFloat() + lineLeft
+        val textEndX = textStartX + textWidth
+
+        val contentLeft = minOf(cbLeft, textStartX)
+        val contentRight = maxOf(cbRight, textEndX)
+        val contentWidth = contentRight - contentLeft
+        if (!contentWidth.isFinite() || contentWidth <= 0f) {
+            privacyAreaCenteredApplied = true
+            return
+        }
+
+        // 仅当「复选框 + 间距 + 文本」整体宽度小于登录按钮宽度时居中，避免影响自动换行/超长文本场景
+        if (contentWidth >= loginWidth) {
+            privacyAreaCenteredApplied = true
+            return
+        }
+
+        val desiredLeft = loginLeft + (loginWidth - contentWidth) / 2f
+        val deltaX = desiredLeft - contentLeft
+        if (!deltaX.isFinite() || abs(deltaX) <= 0.5f) {
+            privacyAreaCenteredApplied = true
+            return
+        }
+
+        val before = groupContainer.translationX
+        groupContainer.translationX = before + deltaX
+        privacyAreaCenteredApplied = true
+        logDebug(
+            "privacy_center_applied",
+            mapOf(
+                "deltaX" to deltaX,
+                "group" to groupContainer.javaClass.simpleName,
+                "beforeX" to before,
+                "afterX" to groupContainer.translationX,
+                "loginW" to loginWidth,
+                "contentW" to contentWidth
+            )
+        )
+    }
+
+    private fun findLoginButtonForPrivacyCentering(root: ViewGroup): View? {
+        val custom = root.findViewWithTag<View?>("quick_custom_login_button")
+        return custom ?: findNativeLoginButton(root)
+    }
+
+    private fun findPrivacyTextViewForCheckbox(root: ViewGroup, checkbox: View): TextView? {
+        // 先尝试在 checkbox 的父容器内找包含可点击 span 的 TextView
+        (checkbox.parent as? ViewGroup)?.let { parent ->
+            collectClickableSpanTextViews(parent).firstOrNull()?.let { return it }
+        }
+
+        // 向上遍历，找到离 checkbox 最近的包含隐私文本的容器
+        var current: View? = checkbox.parent as? View
+        while (current is ViewGroup) {
+            collectClickableSpanTextViews(current).firstOrNull()?.let { return it }
+            if (current == root) break
+            current = current.parent as? View
+        }
+
+        // 回退：在全局范围找（优先取字号更小的）
+        val all = collectClickableSpanTextViews(root)
+        return all.minByOrNull { it.textSize }
+    }
+
+    private fun collectClickableSpanTextViews(view: View): List<TextView> {
+        val result = mutableListOf<TextView>()
+        val queue = ArrayDeque<View>()
+        queue.add(view)
+        while (queue.isNotEmpty()) {
+            val v = queue.removeFirst()
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) {
+                    queue.add(v.getChildAt(i))
+                }
+            }
+            if (v is TextView && v !is Button && v !is CheckBox && isClickableSpanTextView(v)) {
+                result.add(v)
+            }
+        }
+        return result
+    }
+
+    private fun isClickableSpanTextView(view: TextView): Boolean {
+        if (view.movementMethod is LinkMovementMethod) return true
+        val text = view.text
+        if (text is Spanned) {
+            val spans = text.getSpans(0, text.length, ClickableSpan::class.java)
+            if (spans.isNotEmpty()) return true
+        }
+        return false
+    }
+
+    private fun desiredSingleLineTextWidth(view: TextView): Float? {
+        val text = view.text ?: return null
+        if (text.isEmpty()) return null
+        return Layout.getDesiredWidth(text, view.paint)
+    }
+
+    private fun lowestCommonAncestor(a: View, b: View): ViewGroup? {
+        val ancestors = HashSet<View>()
+        var cur: View? = a
+        while (cur != null) {
+            ancestors.add(cur)
+            cur = cur.parent as? View
+        }
+        cur = b
+        while (cur != null) {
+            if (ancestors.contains(cur)) {
+                return cur as? ViewGroup
+            }
+            cur = cur.parent as? View
+        }
+        return null
+    }
+
+    private fun isAncestor(ancestor: View, descendant: View): Boolean {
+        var cur: View? = descendant.parent as? View
+        while (cur != null) {
+            if (cur == ancestor) return true
+            cur = cur.parent as? View
+        }
+        return false
     }
 
     private fun applyCustomLoginButton(container: ViewGroup, attempts: Int) {
