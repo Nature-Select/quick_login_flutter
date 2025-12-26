@@ -15,7 +15,9 @@ private class LoginButtonActionTarget: NSObject {
   weak var plugin: QuickLoginFlutterPlugin?
 
   @objc func triggerNativeButton(_ sender: UIButton) {
+    plugin?.logLifecycle("tap(custom) received")
     guard let customView = customView else {
+      plugin?.logLifecycle("tap(custom) forward (customView=nil)")
       nativeButton?.sendActions(for: .touchUpInside)
       return
     }
@@ -33,6 +35,7 @@ private class LoginButtonActionTarget: NSObject {
     }()
 
     if let checkboxControl = checkboxControl, !checkboxControl.isSelected {
+      plugin?.logLifecycle("tap(custom) blocked (checkboxNotSelected)")
       DispatchQueue.main.async { [weak self] in
         // 原生弹出提示，避免 Flutter 侧被覆盖
         self?.plugin?.showCheckboxNotSelectedToast(in: customView)
@@ -43,7 +46,18 @@ private class LoginButtonActionTarget: NSObject {
       return
     }
 
-    nativeButton?.sendActions(for: .touchUpInside)
+    guard let nativeButton = nativeButton else {
+      plugin?.logLifecycle("tap(custom) ignored (nativeButton=nil)")
+      return
+    }
+    if let plugin = plugin {
+      guard plugin.tryLockLoginButton(customButton: sender, nativeButton: nativeButton) else {
+        plugin.logLifecycle("tap(custom) ignored (alreadyLocked)")
+        return
+      }
+    }
+    plugin?.logLifecycle("tap(custom) forward (sendActions)")
+    nativeButton.sendActions(for: .touchUpInside)
   }
 }
 
@@ -63,6 +77,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var pendingResult: FlutterResult?
   private var appId: String?
   private var appKey: String?
+  private var debugEnabled: Bool = false
   private var toastView: UIView?
   private var toastHideWorkItem: DispatchWorkItem?
   private var checkboxTipText: String = "请先阅读并勾选隐私协议"
@@ -71,6 +86,15 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private let checkboxHitAreaTag = 98765001
   private var authPageClosedEmitted: Bool = false
   private var authPageShown: Bool = false
+  private var loginButtonLocked: Bool = false
+  private var lastAppliedLoginButtonLocked: Bool?
+  private weak var currentCustomLoginButton: UIButton?
+  private weak var currentNativeLoginButton: UIButton?
+  private weak var currentAuthView: UIView?
+  private var currentCheckBoxFrame: CGRect = .zero
+  private static var nativeLoginButtonGuardKey: UInt8 = 0
+  private static var loginButtonStateKey: UInt8 = 0
+  private static let logPrefix = "[quick_login_flutter]"
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "quick_login_flutter", binaryMessenger: registrar.messenger())
@@ -82,6 +106,16 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     let eventChannel = FlutterEventChannel(name: "quick_login_flutter/events", binaryMessenger: registrar.messenger())
     instance.eventChannel = eventChannel
     eventChannel.setStreamHandler(instance)
+  }
+
+  fileprivate func logLifecycle(_ message: String) {
+    #if DEBUG
+    let shouldLog = true
+    #else
+    let shouldLog = debugEnabled
+    #endif
+    guard shouldLog else { return }
+    NSLog("%@ %@", QuickLoginFlutterPlugin.logPrefix, message)
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -112,8 +146,10 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     self.appKey = appKey
 
     let debug = args["debug"] as? Bool ?? false
+    self.debugEnabled = debug
     let timeoutMs = args["timeoutMs"] as? Int
 
+    logLifecycle("init debug=\(debug) timeoutMs=\(timeoutMs.map(String.init) ?? "nil")")
     DispatchQueue.main.async {
       UAFSDKLogin.share.registerAppId(appId, appKey: appKey)
       UAFSDKLogin.share.printConsoleEnable(debug)
@@ -168,6 +204,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
 
     authPageClosedEmitted = false
     authPageShown = false
+    unlockLoginButtonIfNeeded(reason: "handleLogin(start)")
     pendingResult = result
     let timeoutMs = (call.arguments as? [String: Any])?["timeoutMs"] as? Int
     if let timeoutMs = timeoutMs {
@@ -187,11 +224,21 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
         function(UAFSDKLogin.share, selector, model) { [weak self] payload in
           guard let self = self else { return }
           DispatchQueue.main.async {
+            if let payloadDict = payload as? [String: Any] {
+              let rc = self.resultCodeString(from: payloadDict) ?? "nil"
+              self.logLifecycle("sdkCallback rc=\(rc)")
+            } else if payload == nil {
+              self.logLifecycle("sdkCallback payload=nil")
+            } else if let actual = payload {
+              self.logLifecycle("sdkCallback payloadType=\(type(of: actual))")
+            }
+
             // 1) 处理授权页弹出事件（resultCode=200087），只发该事件，不透传 loginCallback，也不结束 pendingResult
             if let payloadDict = payload as? [String: Any],
                let rc = self.resultCodeString(from: payloadDict),
                rc == "200087" {
               self.authPageShown = true
+              self.logLifecycle("authPageShown")
               self.eventSink?(["event": "authPageShown"])
               return
             }
@@ -200,12 +247,13 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
             if let payloadDict = payload as? [String: Any],
                let rc = self.resultCodeString(from: payloadDict),
                rc == "200020" {
+              self.logLifecycle("authPageClosed(sdk)")
               self.emitAuthPageClosedIfNeeded()
               return
             }
 
             // 3) 其他回调视为关闭并透传登录回调
-            self.emitAuthPageClosedIfNeeded()
+            self.logLifecycle("loginCallback")
             if let sink = self.eventSink {
               sink(["event": "loginCallback", "payload": payload ?? [:]])
             }
@@ -248,6 +296,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   }
 
   private func emitAuthPageClosedIfNeeded() {
+    unlockLoginButtonIfNeeded(reason: "authPageClosed")
     if authPageClosedEmitted { return }
     authPageClosedEmitted = true
     authPageShown = false
@@ -557,6 +606,11 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
           objc_setAssociatedObject(customLoginButton, "actionTarget", actionTarget, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
           objc_setAssociatedObject(backgroundView, "actionTarget", actionTarget, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
+          self.currentCustomLoginButton = customLoginButton
+          self.currentNativeLoginButton = nativeButton
+          self.logLifecycle("customLoginButtonCreated")
+          self.applyLoginButtonLockedState()
+
           // 点击自定义按钮时，触发原生按钮的点击事件
           customLoginButton.addTarget(actionTarget, action: #selector(LoginButtonActionTarget.triggerNativeButton(_:)), for: .touchUpInside)
           
@@ -797,10 +851,133 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       self.centerPrivacyAreaIfNeeded(in: customView, loginBtnFrame: loginBtnFrame, checkBoxFrame: checkBoxFrame, privacyFrame: privacyFrame)
     }
 
+    // 一键登录按钮防重复点击：点击后直到回调返回前禁用按钮
+    let previousAuthViewBlockForLoginGuard = model.authViewBlock
+    model.authViewBlock = { [weak self] customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame in
+      previousAuthViewBlockForLoginGuard?(customView, numberFrame, loginBtnFrame, checkBoxFrame, privacyFrame)
+      guard let self = self, let customView = customView else { return }
+
+      self.currentAuthView = customView
+      self.currentCheckBoxFrame = checkBoxFrame
+
+      if loginBtnFrame != .zero, let nativeButton = self.findLoginButton(in: customView, frame: loginBtnFrame) {
+        self.currentNativeLoginButton = nativeButton
+        // 如果存在自定义按钮覆盖层（原生按钮已隐藏），无需再给原生按钮加 guard，
+        // 否则 sendActions(for:) 会触发 guard 日志，容易误判为重复点击。
+        if self.currentCustomLoginButton == nil {
+          self.attachNativeLoginButtonGuardIfNeeded(to: nativeButton)
+        }
+      }
+      self.applyLoginButtonLockedState()
+    }
+
     if let languageIndex = config["appLanguageType"] as? Int,
        let language = UALanguageType(rawValue: UInt(languageIndex + 1)) {
       model.appLanguageType = language
     }
+  }
+
+  private final class LoginButtonState: NSObject {
+    let isEnabled: Bool
+    let isUserInteractionEnabled: Bool
+
+    init(isEnabled: Bool, isUserInteractionEnabled: Bool) {
+      self.isEnabled = isEnabled
+      self.isUserInteractionEnabled = isUserInteractionEnabled
+    }
+  }
+
+  fileprivate func tryLockLoginButton(customButton: UIButton? = nil, nativeButton: UIButton? = nil) -> Bool {
+    if loginButtonLocked {
+      logLifecycle("loginButtonLock denied (alreadyLocked)")
+      return false
+    }
+    loginButtonLocked = true
+    if let customButton { currentCustomLoginButton = customButton }
+    if let nativeButton { currentNativeLoginButton = nativeButton }
+    logLifecycle("loginButtonLock acquired source=\(customButton == nil ? "native" : "custom")")
+    applyLoginButtonLockedState()
+    return true
+  }
+
+  private func unlockLoginButtonIfNeeded(reason: String) {
+    if !loginButtonLocked { return }
+    logLifecycle("loginButtonUnlock reason=\(reason)")
+    loginButtonLocked = false
+    applyLoginButtonLockedState()
+  }
+
+  private func disableButtonForLoginLock(_ button: UIButton) {
+    if objc_getAssociatedObject(button, &QuickLoginFlutterPlugin.loginButtonStateKey) == nil {
+      let state = LoginButtonState(isEnabled: button.isEnabled, isUserInteractionEnabled: button.isUserInteractionEnabled)
+      objc_setAssociatedObject(button, &QuickLoginFlutterPlugin.loginButtonStateKey, state, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+    button.isEnabled = false
+    button.isUserInteractionEnabled = false
+  }
+
+  private func restoreButtonAfterLoginLock(_ button: UIButton) {
+    guard let state = objc_getAssociatedObject(button, &QuickLoginFlutterPlugin.loginButtonStateKey) as? LoginButtonState else { return }
+    button.isEnabled = state.isEnabled
+    button.isUserInteractionEnabled = state.isUserInteractionEnabled
+    objc_setAssociatedObject(button, &QuickLoginFlutterPlugin.loginButtonStateKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+  }
+
+  private func applyLoginButtonLockedState() {
+    let update = { [weak self] in
+      guard let self = self else { return }
+      if self.lastAppliedLoginButtonLocked != self.loginButtonLocked {
+        self.lastAppliedLoginButtonLocked = self.loginButtonLocked
+        self.logLifecycle("loginButtonState applied locked=\(self.loginButtonLocked)")
+      }
+      let manageNativeButton = (self.currentCustomLoginButton == nil)
+      if self.loginButtonLocked {
+        if let button = self.currentCustomLoginButton { self.disableButtonForLoginLock(button) }
+        if manageNativeButton, let button = self.currentNativeLoginButton { self.disableButtonForLoginLock(button) }
+      } else {
+        if let button = self.currentCustomLoginButton { self.restoreButtonAfterLoginLock(button) }
+        if manageNativeButton, let button = self.currentNativeLoginButton { self.restoreButtonAfterLoginLock(button) }
+      }
+    }
+
+    if Thread.isMainThread {
+      update()
+    } else {
+      DispatchQueue.main.async(execute: update)
+    }
+  }
+
+  private func attachNativeLoginButtonGuardIfNeeded(to button: UIButton) {
+    let alreadyAdded = (objc_getAssociatedObject(button, &QuickLoginFlutterPlugin.nativeLoginButtonGuardKey) as? Bool) ?? false
+    guard !alreadyAdded else { return }
+    button.addTarget(self, action: #selector(onNativeLoginButtonTapGuard(_:)), for: .touchUpInside)
+    objc_setAssociatedObject(button, &QuickLoginFlutterPlugin.nativeLoginButtonGuardKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    logLifecycle("nativeLoginButtonGuard attached")
+  }
+
+  @objc private func onNativeLoginButtonTapGuard(_ sender: UIButton) {
+    if loginButtonLocked {
+      logLifecycle("tap(native) ignored (alreadyLocked)")
+      return
+    }
+    logLifecycle("tap(native) received")
+
+    // 未勾选隐私协议时不加锁，避免误把按钮禁用导致无法继续勾选重试
+    if let customView = currentAuthView {
+      let checkboxControl: UIControl? = {
+        if let overlay = customView.viewWithTag(checkboxHitAreaTag) as? CheckboxHitAreaButton,
+           let targetCheckbox = overlay.targetCheckbox {
+          return targetCheckbox
+        }
+        return findCheckbox(in: customView, frame: currentCheckBoxFrame) as? UIControl
+      }()
+      if let checkboxControl = checkboxControl, !checkboxControl.isSelected {
+        logLifecycle("tap(native) blocked (checkboxNotSelected)")
+        return
+      }
+    }
+
+    _ = tryLockLoginButton(nativeButton: sender)
   }
 
   @objc private func onSmsLoginButtonTapped() {
@@ -812,6 +989,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   
   @objc private func onCloseButtonTapped() {
     // 关闭授权页
+    logLifecycle("closeButton tapped")
     dismissAuthPageAndEmit()
   }
   
@@ -1025,6 +1203,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   }
 
   private func dismissAuthPageAndEmit() {
+    logLifecycle("dismissAuthPageAndEmit")
     DispatchQueue.main.async { [weak self] in
       UAFSDKLogin.share.ua_dismissViewController(animated: true, completion: { [weak self] in
         self?.emitAuthPageClosedIfNeeded()
