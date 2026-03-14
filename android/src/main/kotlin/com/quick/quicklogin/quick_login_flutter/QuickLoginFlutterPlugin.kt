@@ -1060,13 +1060,24 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         eventSink = null
     }
 
+    private fun buildAuthPageClosedResult(): Map<String, Any> {
+        return mapOf(
+            "resultCode" to "200020",
+            "result" to "Authorization page closed"
+        )
+    }
+
     private fun emitAuthPageClosedIfNeeded() {
-        if (authPageClosedEmitted) return
+        if (authPageClosedEmitted) {
+            return
+        }
         val hasShown = authPageShownEmitted || currentTopActivity is GenLoginAuthActivity
-        if (!hasShown) return
+        if (!hasShown) {
+            return
+        }
         authPageClosedEmitted = true
         mainHandler.post {
-            pendingResult?.error("user_cancelled", "Authorization page closed", null)
+            pendingResult?.success(buildAuthPageClosedResult())
             pendingResult = null
             eventSink?.success(mapOf("event" to "authPageClosed"))
         }

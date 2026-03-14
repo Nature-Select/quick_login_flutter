@@ -297,12 +297,17 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
 
   private func emitAuthPageClosedIfNeeded() {
     unlockLoginButtonIfNeeded(reason: "authPageClosed")
-    if authPageClosedEmitted { return }
+    if authPageClosedEmitted {
+      return
+    }
     authPageClosedEmitted = true
     authPageShown = false
     DispatchQueue.main.async { [weak self] in
       if let result = self?.pendingResult {
-        result(FlutterError(code: "user_cancelled", message: "Authorization page closed", details: nil))
+        result([
+          "resultCode": "200020",
+          "result": "Authorization page closed",
+        ])
         self?.pendingResult = nil
       }
       self?.eventSink?(["event": "authPageClosed"])
