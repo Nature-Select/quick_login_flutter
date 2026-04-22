@@ -80,7 +80,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var debugEnabled: Bool = false
   private var toastView: UIView?
   private var toastHideWorkItem: DispatchWorkItem?
-  private var checkboxTipText: String = "请先阅读并勾选隐私协议"
+  private var checkboxTipText: String = "请先阅读并勾选运营商服务协议"
   private var nativeToastEnabled: Bool = true
   private var nativeToastOffsetY: CGFloat = 0
   private let checkboxHitAreaTag = 98765001
@@ -324,7 +324,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private func applyUiConfig(_ config: [String: Any]?, model: UAFCustomModel) {
     let config = config ?? [:]
     // 每次配置时刷新勾选提示文案，避免复用旧值
-    checkboxTipText = "请先阅读并勾选隐私协议"
+    checkboxTipText = "请先阅读并勾选运营商服务协议"
     nativeToastEnabled = (config["showNativeToast"] as? Bool) ?? true
     nativeToastOffsetY = CGFloat((config["nativeToastCenterYOffset"] as? Double) ?? 0.0)
     let presentation = (config["presentationStyle"] as? String) ?? "fullScreen"
@@ -768,7 +768,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       model.checkTipText = tipText
       checkboxTipText = tipText
     } else {
-      checkboxTipText = "请先阅读并勾选隐私协议"
+      checkboxTipText = "请先阅读并勾选运营商服务协议"
     }
 
     let checkedName = (config["checkboxCheckedImageName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1315,7 +1315,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   fileprivate func showCheckboxNotSelectedToast(in view: UIView?) {
     guard nativeToastEnabled else { return }
     let text = checkboxTipText.trimmingCharacters(in: .whitespacesAndNewlines)
-    let message = text.isEmpty ? "请先阅读并勾选隐私协议" : text
+    let message = text.isEmpty ? "请先阅读并勾选运营商服务协议" : text
     showNativeToast(message: message, in: view)
   }
 

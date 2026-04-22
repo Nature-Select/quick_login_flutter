@@ -85,7 +85,10 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var privacyAreaCenteredApplied: Boolean = false
     private var lifecycleRegistered = false
     private val debugTag = "QLCustomBtn"
-    private var checkboxTipText: String = "请先阅读并勾选隐私协议"
+    private val customLoginButtonTag = "quick_custom_login_button"
+    private val customSmsLoginButtonTag = "quick_custom_sms_login_button"
+    private val customCloseButtonTag = "quick_custom_close_button"
+    private var checkboxTipText: String = "请先阅读并勾选运营商服务协议"
     private var nativeToastView: View? = null
     private var nativeToastHideRunnable: Runnable? = null
     private var nativeToastWindowManager: WindowManager? = null
@@ -94,6 +97,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var nativeToastOffsetPx: Int = 0
     private var authPageShownEmitted: Boolean = false
     private var authPageClosedEmitted: Boolean = false
+    private var currentNativeLoginButton: View? = null
 
     private val authActivityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: android.os.Bundle?) {
@@ -129,6 +133,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             if (activity is GenLoginAuthActivity) {
                 emitAuthPageClosedIfNeeded()
                 authPageShownEmitted = false
+                currentNativeLoginButton = null
             }
         }
     }
@@ -405,7 +410,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      */
     private fun createThemeConfig(config: Map<String, Any?>?, activity: Activity): GenAuthThemeConfig {
         val builder = GenAuthThemeConfig.Builder()
-        checkboxTipText = "请先阅读并勾选隐私协议"
+        checkboxTipText = "请先阅读并勾选运营商服务协议"
         nativeToastEnabled = true
         nativeToastOffsetPx = 0
         autoCenterPrivacyAreaEnabled = false
@@ -1354,7 +1359,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     }
 
     private fun maybeApplyCustomLoginButton(container: ViewGroup) {
-        applyCustomLoginButton(container, 3)
+        applyCustomLoginButton(container, 12)
     }
 
     private fun maybeApplyCustomCheckbox(container: ViewGroup) {
@@ -1503,7 +1508,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     }
 
     private fun findLoginButtonForPrivacyCentering(root: ViewGroup): View? {
-        val custom = root.findViewWithTag<View?>("quick_custom_login_button")
+        val custom = root.findViewWithTag<View?>(customLoginButtonTag)
         return custom ?: findNativeLoginButton(root)
     }
 
@@ -1588,27 +1593,30 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     private fun applyCustomLoginButton(container: ViewGroup, attempts: Int) {
         val config = customLoginButtonConfig ?: return
-        val tagKey = "quick_custom_login_button"
         val contentRoot = container.rootView.findViewById<ViewGroup?>(android.R.id.content) ?: container
-        if (contentRoot.findViewWithTag<View?>(tagKey) != null) return
+        val customButton = contentRoot.findViewWithTag<View?>(customLoginButtonTag) as? Button
 
         logDebug("start_apply", mapOf("container" to container.javaClass.simpleName))
-        val nativeBtn = findNativeLoginButton(container) ?: run {
-            logDebug("native_not_found", emptyMap())
-            logViewTree(container)
-            if (attempts > 0) {
-                mainHandler.postDelayed({ applyCustomLoginButton(container, attempts - 1) }, 50)
+        val nativeBtn = findNativeLoginButton(contentRoot)
+            ?: currentNativeLoginButton?.takeIf { isNativeLoginButtonCandidate(it, includeHidden = true) }
+            ?: findNativeLoginButton(contentRoot, includeHidden = true)
+            ?: run {
+                logDebug("native_not_found", emptyMap())
+                logViewTree(container)
+                if (attempts > 0) {
+                    mainHandler.postDelayed({ applyCustomLoginButton(contentRoot, attempts - 1) }, 80)
+                }
+                return
             }
-            return
-        }
 
         if (nativeBtn.width == 0 || nativeBtn.height == 0) {
             logDebug("native_size_zero", mapOf("w" to nativeBtn.width, "h" to nativeBtn.height))
             if (attempts > 0) {
-                mainHandler.postDelayed({ applyCustomLoginButton(container, attempts - 1) }, 50)
+                mainHandler.postDelayed({ applyCustomLoginButton(contentRoot, attempts - 1) }, 80)
             }
             return
         }
+        currentNativeLoginButton = nativeBtn
 
         logDebug(
             "native_found",
@@ -1626,18 +1634,21 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         (nativeBtn as? Button)?.text = ""
 
         // 创建自定义按钮，尺寸/位置沿用原生按钮
-        val newButton = Button(container.context).apply {
-            this.tag = tagKey
-            text = config.text ?: "登录"
-            setTextColor(config.textColor ?: Color.WHITE)
-            textSize = (config.textSize ?: 15).toFloat()
-            typeface = if (config.textBold == true) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        val newButton = customButton ?: Button(container.context).apply {
+            this.tag = customLoginButtonTag
             setOnClickListener {
                 // 检查复选框是否勾选
                 val checkbox = findNativeCheckbox(contentRoot)
                 val isChecked = (checkbox as? CheckBox)?.isChecked ?: true
                 if (isChecked) {
-                    nativeBtn.performClick()
+                    val clickTarget = currentNativeLoginButton
+                        ?.takeIf { isNativeLoginButtonCandidate(it, includeHidden = true) }
+                        ?: findNativeLoginButton(contentRoot, includeHidden = true)
+                    if (clickTarget != null) {
+                        clickTarget.performClick()
+                    } else {
+                        logDebug("native_click_target_missing", emptyMap())
+                    }
                 } else {
                     showCheckboxNotSelectedToast(contentRoot)
                     // 发送复选框未勾选事件到 Flutter
@@ -1647,6 +1658,10 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 }
             }
         }
+        newButton.text = config.text ?: "登录"
+        newButton.setTextColor(config.textColor ?: Color.WHITE)
+        newButton.textSize = (config.textSize ?: 15).toFloat()
+        newButton.typeface = if (config.textBold == true) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
 
         // 以屏幕坐标定位到与原生按钮中心一致的位置
         val nativePos = IntArray(2)
@@ -1659,10 +1674,20 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val left = nativePos[0] - rootPos[0] + (nativeBtn.width - targetW) / 2
         val top = nativePos[1] - rootPos[1] + (nativeBtn.height - targetH) / 2
 
-        val newLp = FrameLayout.LayoutParams(targetW, targetH)
-        newLp.leftMargin = left
-        newLp.topMargin = top
-        newButton.layoutParams = newLp
+        val currentLp = newButton.layoutParams as? FrameLayout.LayoutParams
+        val newLp = currentLp ?: FrameLayout.LayoutParams(targetW, targetH)
+        val layoutChanged = currentLp == null ||
+            newLp.width != targetW ||
+            newLp.height != targetH ||
+            newLp.leftMargin != left ||
+            newLp.topMargin != top
+        if (layoutChanged) {
+            newLp.width = targetW
+            newLp.height = targetH
+            newLp.leftMargin = left
+            newLp.topMargin = top
+            newButton.layoutParams = newLp
+        }
 
         val radius = config.cornerRadiusPx ?: (targetH / 2f)
         newButton.background = createStateDrawable(config.backgroundColor ?: Color.TRANSPARENT, radius)
@@ -1671,11 +1696,15 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         }
         newButton.elevation = 0f
 
-        contentRoot.addView(newButton)
+        if (customButton == null) {
+            contentRoot.addView(newButton)
+        }
         newButton.bringToFront()
-        newButton.requestLayout()
+        if (layoutChanged) {
+            newButton.requestLayout()
+        }
         logDebug(
-            "custom_btn_added",
+            if (customButton == null) "custom_btn_added" else "custom_btn_synced",
             mapOf(
                 "native_w" to nativeBtn.width,
                 "native_h" to nativeBtn.height,
@@ -1688,9 +1717,12 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 "text" to (config.text ?: "")
             )
         )
+        if (attempts > 0) {
+            mainHandler.postDelayed({ applyCustomLoginButton(contentRoot, attempts - 1) }, 80)
+        }
     }
 
-    private fun findNativeLoginButton(root: ViewGroup): View? {
+    private fun findNativeLoginButton(root: ViewGroup, includeHidden: Boolean = false): View? {
         val queue = ArrayDeque<View>()
         queue.add(root)
         val buttonCandidates = mutableListOf<Button>()
@@ -1702,7 +1734,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                     queue.add(v.getChildAt(i))
                 }
             }
-            if (v is CheckBox) continue
+            if (!isNativeLoginButtonCandidate(v, includeHidden)) continue
             if (v.isClickable && v.isFocusable) {
                 if (v is Button) buttonCandidates.add(v) else clickableCandidates.add(v)
             }
@@ -1721,6 +1753,22 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             )
         )
         return winner
+    }
+
+    private fun isNativeLoginButtonCandidate(view: View, includeHidden: Boolean): Boolean {
+        if (view.parent == null) return false
+        if (view is CheckBox) return false
+        val tag = view.tag as? String
+        if (tag == customLoginButtonTag ||
+            tag == customSmsLoginButtonTag ||
+            tag == customCloseButtonTag) {
+            return false
+        }
+        if (!view.isClickable || !view.isFocusable) return false
+        if (!includeHidden && (view.visibility != View.VISIBLE || view.alpha <= 0.01f)) {
+            return false
+        }
+        return true
     }
 
     private fun findNativeCheckbox(root: ViewGroup): View? {
@@ -2028,7 +2076,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     private fun showCheckboxNotSelectedToast(anchor: ViewGroup?) {
         if (!nativeToastEnabled) return
-        val msg = checkboxTipText.trim().ifEmpty { "请先阅读并勾选隐私协议" }
+        val msg = checkboxTipText.trim().ifEmpty { "请先阅读并勾选运营商服务协议" }
         showNativeToast(msg, anchor)
     }
 
