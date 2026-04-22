@@ -12,7 +12,6 @@ import android.graphics.drawable.StateListDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.PixelFormat
@@ -84,7 +83,6 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var autoCenterPrivacyAreaEnabled: Boolean = false
     private var privacyAreaCenteredApplied: Boolean = false
     private var lifecycleRegistered = false
-    private val debugTag = "QLCustomBtn"
     private val customLoginButtonTag = "quick_custom_login_button"
     private val customSmsLoginButtonTag = "quick_custom_sms_login_button"
     private val customCloseButtonTag = "quick_custom_close_button"
@@ -101,6 +99,9 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     private val authActivityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: android.os.Bundle?) {
+            if (activity is GenLoginAuthActivity) {
+                currentNativeLoginButton = null
+            }
             maybeApplyAuthBackground(activity)
             maybeConfigureWebView(activity)
         }
@@ -1596,21 +1597,35 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val contentRoot = container.rootView.findViewById<ViewGroup?>(android.R.id.content) ?: container
         val customButton = contentRoot.findViewWithTag<View?>(customLoginButtonTag) as? Button
 
-        logDebug("start_apply", mapOf("container" to container.javaClass.simpleName))
-        val nativeBtn = findNativeLoginButton(contentRoot)
-            ?: currentNativeLoginButton?.takeIf { isNativeLoginButtonCandidate(it, includeHidden = true) }
-            ?: findNativeLoginButton(contentRoot, includeHidden = true)
+        val rawCachedNativeBtn = currentNativeLoginButton
+        val cachedNativeBtn = rawCachedNativeBtn
+            ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = true) }
+        if (rawCachedNativeBtn != null && cachedNativeBtn == null) {
+            currentNativeLoginButton = null
+        }
+
+        val visibleNativeBtn = if (cachedNativeBtn == null && customButton == null) {
+            findNativeLoginButton(contentRoot)
+        } else {
+            null
+        }
+        val hiddenNativeBtn = if (cachedNativeBtn == null && visibleNativeBtn == null && customButton == null) {
+            findNativeLoginButton(contentRoot, includeHidden = true)
+        } else {
+            null
+        }
+        val nativeBtn = cachedNativeBtn
+            ?: visibleNativeBtn
+            ?: hiddenNativeBtn
             ?: run {
-                logDebug("native_not_found", emptyMap())
-                logViewTree(container)
                 if (attempts > 0) {
                     mainHandler.postDelayed({ applyCustomLoginButton(contentRoot, attempts - 1) }, 80)
                 }
                 return
             }
-
         if (nativeBtn.width == 0 || nativeBtn.height == 0) {
-            logDebug("native_size_zero", mapOf("w" to nativeBtn.width, "h" to nativeBtn.height))
+            currentNativeLoginButton = nativeBtn
+            hideNativeLoginButton(nativeBtn)
             if (attempts > 0) {
                 mainHandler.postDelayed({ applyCustomLoginButton(contentRoot, attempts - 1) }, 80)
             }
@@ -1618,20 +1633,8 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         }
         currentNativeLoginButton = nativeBtn
 
-        logDebug(
-            "native_found",
-            mapOf(
-                "class" to nativeBtn.javaClass.simpleName,
-                "w" to nativeBtn.width,
-                "h" to nativeBtn.height,
-                "parent" to (nativeBtn.parent?.javaClass?.simpleName ?: "null")
-            )
-        )
-
         // 将原生按钮外观置空，但保留点击行为
-        nativeBtn.alpha = 0f
-        nativeBtn.background = null
-        (nativeBtn as? Button)?.text = ""
+        hideNativeLoginButton(nativeBtn)
 
         // 创建自定义按钮，尺寸/位置沿用原生按钮
         val newButton = customButton ?: Button(container.context).apply {
@@ -1642,12 +1645,9 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 val isChecked = (checkbox as? CheckBox)?.isChecked ?: true
                 if (isChecked) {
                     val clickTarget = currentNativeLoginButton
-                        ?.takeIf { isNativeLoginButtonCandidate(it, includeHidden = true) }
-                        ?: findNativeLoginButton(contentRoot, includeHidden = true)
+                        ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = true) }
                     if (clickTarget != null) {
                         clickTarget.performClick()
-                    } else {
-                        logDebug("native_click_target_missing", emptyMap())
                     }
                 } else {
                     showCheckboxNotSelectedToast(contentRoot)
@@ -1703,20 +1703,6 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         if (layoutChanged) {
             newButton.requestLayout()
         }
-        logDebug(
-            if (customButton == null) "custom_btn_added" else "custom_btn_synced",
-            mapOf(
-                "native_w" to nativeBtn.width,
-                "native_h" to nativeBtn.height,
-                "cfg_w" to config.width,
-                "cfg_h" to config.height,
-                "cfg_radius" to config.cornerRadiusPx,
-                "cfg_bg" to config.backgroundColor,
-                "final_w" to targetW,
-                "final_h" to targetH,
-                "text" to (config.text ?: "")
-            )
-        )
         if (attempts > 0) {
             mainHandler.postDelayed({ applyCustomLoginButton(contentRoot, attempts - 1) }, 80)
         }
@@ -1741,18 +1727,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         }
         val winnerButton = buttonCandidates.maxByOrNull { (it.width.takeIf { w -> w > 0 } ?: 0) * (it.height.takeIf { h -> h > 0 } ?: 0) }
         val winnerOther = clickableCandidates.maxByOrNull { (it.width.takeIf { w -> w > 0 } ?: 0) * (it.height.takeIf { h -> h > 0 } ?: 0) }
-        val winner = winnerButton ?: winnerOther
-        logDebug(
-            "native_candidates",
-            mapOf(
-                "btn_count" to buttonCandidates.size,
-                "other_count" to clickableCandidates.size,
-                "winner_class" to (winner?.javaClass?.simpleName ?: "none"),
-                "winner_w" to (winner?.width ?: -1),
-                "winner_h" to (winner?.height ?: -1)
-            )
-        )
-        return winner
+        return winnerButton ?: winnerOther
     }
 
     private fun isNativeLoginButtonCandidate(view: View, includeHidden: Boolean): Boolean {
@@ -1769,6 +1744,21 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             return false
         }
         return true
+    }
+
+    private fun isAttachedToRoot(view: View, root: View): Boolean {
+        var current: View? = view
+        while (current != null) {
+            if (current == root) return true
+            current = current.parent as? View
+        }
+        return false
+    }
+
+    private fun hideNativeLoginButton(view: View) {
+        view.alpha = 0f
+        view.background = null
+        (view as? Button)?.text = ""
     }
 
     private fun findNativeCheckbox(root: ViewGroup): View? {
@@ -2195,10 +2185,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         return dp * context.resources.displayMetrics.density
     }
 
-    private fun logDebug(event: String, data: Map<String, Any?>) {
-        val payload = data.entries.joinToString(", ") { "${it.key}=${it.value}" }
-        Log.d(debugTag, "$event | $payload")
-    }
+    private fun logDebug(event: String, data: Map<String, Any?>) {}
 
     private fun logViewTree(root: View) {
         val queue = ArrayDeque<Pair<View, Int>>()
