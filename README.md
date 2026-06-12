@@ -50,6 +50,25 @@ Future<void> login() async {
 
 运行 `example/` 可查看完整交互示例（需填入真实 `appId`/`appKey`）。
 
+## 隐私协议未勾选提示
+
+未勾选隐私协议直接点击一键登录时，SDK 默认按 `showNativeToast` 展示原生 toast。
+如果需要展示通用双按钮弹窗，可以在 `AuthUIConfig` 中开启 `showPrivacyAgreementAlert`：
+
+```dart
+AuthUIConfig(
+  showNativeToast: false,
+  showPrivacyAgreementAlert: true,
+  privacyAgreementAlertTitle: '运营商服务协议',
+  privacyAgreementAlertMessage: '点击同意并继续视为您已同意运营商服务协议，并使用本机号码一键登录',
+  privacyAgreementAlertCancelText: '取消',
+  privacyAgreementAlertContinueText: '同意并继续',
+)
+```
+
+弹窗为 SDK 原生侧闭环能力：点击“取消”只关闭弹窗；点击“同意并继续”会先在原生侧勾选隐私协议，再直接触发一键登录，不需要 Flutter 外部再次调用登录按钮。
+当 `showPrivacyAgreementAlert` 为 true 时弹窗优先，`showNativeToast` 仅在弹窗未开启时生效。
+
 ## 切换到验证码登录功能（iOS/Android）
 
 如果用户不想使用一键登录，可以在授权页面添加"切换登录方式"按钮，点击后切换到自定义的其他登录页面（如验证码登录、账号密码登录等）。
@@ -153,7 +172,7 @@ Future<void> _handleSwitchToSmsLogin() async {
 - 登录按钮：`loginButtonText`、`loginButtonTextColor`、`loginButtonTextSize`、`loginButtonTextBold`、`loginButtonImageName`、`loginButtonBackgroundColor`、`loginButtonCornerRadius`、`loginButtonWidth`/`loginButtonHeight`、`loginButtonMarginLeft`/`loginButtonMarginRight`、`loginButtonOffsetY`/`loginButtonOffsetYBottom`
 - 号码栏：`numberColor`、`numberSize`、`numberBold`、`numberOffsetX`、`numberOffsetY`、`numberOffsetYBottom`
 - 品牌 logo：`displayLogo`、`logoWidth`/`logoHeight`、`logoOffsetX`/`logoOffsetY`/`logoOffsetYBottom`
-- 隐私区：`privacyText` + `privacyClauses`（使用 `PrivacyClause`）、`privacyBaseTextColor`、`privacyClauseTextColor`、`privacyTextSize`、`privacyTextBold`、`privacyTextCenter`、`privacyMarginLeft`/`privacyMarginRight`、`privacyOffsetY`/`privacyOffsetYBottom`、`privacyBookSymbol`、`checkboxCheckedImageName`/`checkboxUncheckedImageName`/`checkboxImageWidth`/`checkboxImageHeight`、`checkboxLocation`、`checkboxOffsetX`/`checkboxOffsetY`、`checkboxAccurateClick`、`privacyPageFullScreen`、`privacyAnimation`、`checkTipText`、`webDomStorage`、`privacyDefaultCheck`、`privacyRequired`
+- 隐私区：`privacyText` + `privacyClauses`（使用 `PrivacyClause`）、`privacyBaseTextColor`、`privacyClauseTextColor`、`privacyTextSize`、`privacyTextBold`、`privacyTextCenter`、`privacyMarginLeft`/`privacyMarginRight`、`privacyOffsetY`/`privacyOffsetYBottom`、`privacyBookSymbol`、`checkboxCheckedImageName`/`checkboxUncheckedImageName`/`checkboxImageWidth`/`checkboxImageHeight`、`checkboxLocation`、`checkboxOffsetX`/`checkboxOffsetY`、`checkboxAccurateClick`、`privacyPageFullScreen`、`privacyAnimation`、`checkTipText`、`showNativeToast`、`showPrivacyAgreementAlert`、`privacyAgreementAlertTitle`/`privacyAgreementAlertMessage`/`privacyAgreementAlertCancelText`/`privacyAgreementAlertContinueText`、`webDomStorage`、`privacyDefaultCheck`、`privacyRequired`
 - **切换登录方式按钮（iOS/Android）**：`showSwitchButton`（是否显示）、`switchButtonText`（按钮文案）、`switchButtonTextColor`（文字颜色）、`switchButtonTextSize`（文字大小）、`switchButtonBackgroundColor`（背景颜色，默认 0xFF333333）、`switchButtonWidth`（宽度，默认 36dp）、`switchButtonHeight`（高度，默认 20dp）、`switchButtonCornerRadius`（圆角半径，默认 100）、`switchButtonSpacing`（与号码框间距，默认 8dp）
 - **关闭按钮（iOS/Android）**：`showCloseButton`（是否显示，默认 true）、`closeButtonTopSpacing`（顶部间距，默认 12dp）、`closeButtonRightSpacing`（右边间距，默认 12dp）、`closeButtonImageName`（图片名称，默认 "close.png"）
 - 其他：`provideTextSize`/`provideTextBold`/`provideTextColor`/`provideTextOffsetX`/`provideTextOffsetY`/`provideTextOffsetYBottom`、`authPageInAnimation`/`activityOutAnimation`/`authPageOutAnimation`/`activityInAnimation`、`appLanguageType`

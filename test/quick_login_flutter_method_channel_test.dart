@@ -8,10 +8,13 @@ void main() {
   final MethodChannelQuickLoginFlutter platform =
       MethodChannelQuickLoginFlutter();
   const MethodChannel channel = MethodChannel('quick_login_flutter');
+  final calls = <String>[];
 
   setUp(() {
+    calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+          calls.add(methodCall.method);
           switch (methodCall.method) {
             case 'init':
               return null;
@@ -37,5 +40,9 @@ void main() {
     expect(await platform.login(), {'resultCode': 'ok', 'token': 't-123'});
     expect(await platform.prefetchNumber(), {'resultCode': 'prefetch'});
     await platform.dismiss();
+    expect(
+      calls,
+      containsAllInOrder(['init', 'login', 'prefetchNumber', 'dismiss']),
+    );
   });
 }

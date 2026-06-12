@@ -2,9 +2,11 @@ package com.quick.quicklogin.quick_login_flutter
 
 import android.app.Activity
 import android.app.Application
+import android.app.Dialog
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.content.res.ColorStateList
@@ -16,13 +18,16 @@ import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.PixelFormat
 import android.text.Layout
+import android.text.TextUtils
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
+import android.text.method.ScrollingMovementMethod
 import android.text.style.ClickableSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.Window
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.CheckBox
@@ -84,6 +89,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var privacyAreaCenteredApplied: Boolean = false
     private var lifecycleRegistered = false
     private val customLoginButtonTag = "quick_custom_login_button"
+    private val nativeLoginGuardTag = "quick_native_login_guard"
     private val customSmsLoginButtonTag = "quick_custom_sms_login_button"
     private val customCloseButtonTag = "quick_custom_close_button"
     private var checkboxTipText: String = "请先阅读并勾选运营商服务协议"
@@ -92,6 +98,13 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private var nativeToastWindowManager: WindowManager? = null
     private var currentTopActivity: Activity? = null
     private var nativeToastEnabled: Boolean = true
+    private var privacyAgreementAlertEnabled: Boolean = false
+    private var privacyAgreementAlertShowing: Boolean = false
+    private var privacyAgreementDialog: Dialog? = null
+    private var privacyAgreementAlertTitle: String = "运营商服务协议"
+    private var privacyAgreementAlertMessage: String = "点击同意并继续视为您已同意运营商服务协议，并使用本机号码一键登录"
+    private var privacyAgreementAlertCancelText: String = "取消"
+    private var privacyAgreementAlertContinueText: String = "同意并继续"
     private var nativeToastOffsetPx: Int = 0
     private var authPageShownEmitted: Boolean = false
     private var authPageClosedEmitted: Boolean = false
@@ -379,6 +392,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 val ctx = context
                 if (ctx != null && appId != null) {
                     val helper = GenAuthnHelper.getInstance(ctx, appId)
+                    dismissPrivacyAgreementAlert()
                     helper.quitAuthActivity()
                     emitAuthPageClosedIfNeeded()
                 }
@@ -413,6 +427,13 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val builder = GenAuthThemeConfig.Builder()
         checkboxTipText = "请先阅读并勾选运营商服务协议"
         nativeToastEnabled = true
+        privacyAgreementAlertEnabled = false
+        privacyAgreementAlertShowing = false
+        privacyAgreementDialog = null
+        privacyAgreementAlertTitle = "运营商服务协议"
+        privacyAgreementAlertMessage = "点击同意并继续视为您已同意运营商服务协议，并使用本机号码一键登录"
+        privacyAgreementAlertCancelText = "取消"
+        privacyAgreementAlertContinueText = "同意并继续"
         nativeToastOffsetPx = 0
         autoCenterPrivacyAreaEnabled = false
         privacyAreaCenteredApplied = false
@@ -760,6 +781,11 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             checkboxTipText = tip
         }
         nativeToastEnabled = (config["showNativeToast"] as? Boolean) ?: true
+        privacyAgreementAlertEnabled = (config["showPrivacyAgreementAlert"] as? Boolean) ?: false
+        privacyAgreementAlertTitle = config["privacyAgreementAlertTitle"] as? String ?: "运营商服务协议"
+        privacyAgreementAlertMessage = config["privacyAgreementAlertMessage"] as? String ?: "点击同意并继续视为您已同意运营商服务协议，并使用本机号码一键登录"
+        privacyAgreementAlertCancelText = config["privacyAgreementAlertCancelText"] as? String ?: "取消"
+        privacyAgreementAlertContinueText = config["privacyAgreementAlertContinueText"] as? String ?: "同意并继续"
         nativeToastOffsetPx = ((config["nativeToastCenterYOffset"] as? Number)?.toFloat()?.let { toPx(it, ctx) } ?: 0f).toInt()
 
         // ============ 10. 授权页底部文字 ============
@@ -1074,6 +1100,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     }
 
     private fun emitAuthPageClosedIfNeeded() {
+        dismissPrivacyAgreementAlert()
         if (authPageClosedEmitted) {
             return
         }
@@ -1110,6 +1137,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val color = authBackgroundColor
         val needBackground = radii != null || color != null
         val needCustom = customLoginButtonConfig != null ||
+            privacyAgreementAlertEnabled ||
             customCheckboxConfig != null ||
             customSmsLoginButtonConfig != null ||
             customCloseButtonConfig != null ||
@@ -1134,6 +1162,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         }
 
         maybeApplyCustomLoginButton(target as? ViewGroup ?: root)
+        maybeApplyPrivacyAgreementLoginGuard(target as? ViewGroup ?: root)
         maybeApplyCustomCheckbox(target as? ViewGroup ?: root)
         maybeApplyCustomSmsLoginButton(target as? ViewGroup ?: root)
         maybeApplyCustomCloseButton(target as? ViewGroup ?: root)
@@ -1361,6 +1390,11 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     private fun maybeApplyCustomLoginButton(container: ViewGroup) {
         applyCustomLoginButton(container, 12)
+    }
+
+    private fun maybeApplyPrivacyAgreementLoginGuard(container: ViewGroup) {
+        if (!privacyAgreementAlertEnabled || customLoginButtonConfig != null) return
+        applyPrivacyAgreementLoginGuard(container, 12)
     }
 
     private fun maybeApplyCustomCheckbox(container: ViewGroup) {
@@ -1650,10 +1684,12 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                         clickTarget.performClick()
                     }
                 } else {
-                    showCheckboxNotSelectedToast(contentRoot)
-                    // 发送复选框未勾选事件到 Flutter
-                    mainHandler.post {
-                        eventSink?.success(mapOf("event" to "checkboxNotChecked"))
+                    handlePrivacyAgreementUnchecked(contentRoot, checkbox as? CheckBox) {
+                        val clickTarget = currentNativeLoginButton
+                            ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = true) }
+                        if (clickTarget != null) {
+                            clickTarget.performClick()
+                        }
                     }
                 }
             }
@@ -1708,6 +1744,75 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         }
     }
 
+    private fun applyPrivacyAgreementLoginGuard(container: ViewGroup, attempts: Int) {
+        val contentRoot = container.rootView.findViewById<ViewGroup?>(android.R.id.content) ?: container
+        if (contentRoot.findViewWithTag<View?>(customLoginButtonTag) != null) return
+
+        val rawCachedNativeBtn = currentNativeLoginButton
+        val cachedNativeBtn = rawCachedNativeBtn
+            ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = false) }
+        if (rawCachedNativeBtn != null && cachedNativeBtn == null) {
+            currentNativeLoginButton = null
+        }
+
+        val nativeBtn = cachedNativeBtn ?: findNativeLoginButton(contentRoot)
+        if (nativeBtn == null) {
+            if (attempts > 0) {
+                mainHandler.postDelayed({ applyPrivacyAgreementLoginGuard(contentRoot, attempts - 1) }, 80)
+            }
+            return
+        }
+        if (nativeBtn.width == 0 || nativeBtn.height == 0) {
+            currentNativeLoginButton = nativeBtn
+            if (attempts > 0) {
+                mainHandler.postDelayed({ applyPrivacyAgreementLoginGuard(contentRoot, attempts - 1) }, 80)
+            }
+            return
+        }
+        currentNativeLoginButton = nativeBtn
+
+        val guardView = contentRoot.findViewWithTag<View?>(nativeLoginGuardTag) ?: View(container.context).apply {
+            tag = nativeLoginGuardTag
+            isClickable = true
+            isFocusable = true
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        guardView.setOnClickListener {
+            val checkbox = findNativeCheckbox(contentRoot) as? CheckBox
+            if (checkbox == null || checkbox.isChecked) {
+                val clickTarget = currentNativeLoginButton
+                    ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = false) }
+                clickTarget?.performClick()
+            } else {
+                handlePrivacyAgreementUnchecked(contentRoot, checkbox) {
+                    val clickTarget = currentNativeLoginButton
+                        ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = false) }
+                    clickTarget?.performClick()
+                }
+            }
+        }
+
+        val nativePos = IntArray(2)
+        nativeBtn.getLocationOnScreen(nativePos)
+        val rootPos = IntArray(2)
+        contentRoot.getLocationOnScreen(rootPos)
+        val left = nativePos[0] - rootPos[0]
+        val top = nativePos[1] - rootPos[1]
+
+        val lp = (guardView.layoutParams as? FrameLayout.LayoutParams)
+            ?: FrameLayout.LayoutParams(nativeBtn.width, nativeBtn.height)
+        lp.width = nativeBtn.width
+        lp.height = nativeBtn.height
+        lp.leftMargin = left
+        lp.topMargin = top
+        if (guardView.parent == null) {
+            contentRoot.addView(guardView, lp)
+        } else {
+            guardView.layoutParams = lp
+        }
+        guardView.bringToFront()
+    }
+
     private fun findNativeLoginButton(root: ViewGroup, includeHidden: Boolean = false): View? {
         val queue = ArrayDeque<View>()
         queue.add(root)
@@ -1735,6 +1840,7 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         if (view is CheckBox) return false
         val tag = view.tag as? String
         if (tag == customLoginButtonTag ||
+            tag == nativeLoginGuardTag ||
             tag == customSmsLoginButtonTag ||
             tag == customCloseButtonTag) {
             return false
@@ -2068,6 +2174,193 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         if (!nativeToastEnabled) return
         val msg = checkboxTipText.trim().ifEmpty { "请先阅读并勾选运营商服务协议" }
         showNativeToast(msg, anchor)
+    }
+
+    private fun handlePrivacyAgreementUnchecked(
+        anchor: ViewGroup?,
+        checkbox: CheckBox?,
+        continueAction: () -> Unit
+    ) {
+        mainHandler.post {
+            eventSink?.success(mapOf("event" to "checkboxNotChecked"))
+        }
+
+        if (privacyAgreementAlertEnabled) {
+            showPrivacyAgreementAlert(anchor, checkbox, continueAction)
+            return
+        }
+
+        showCheckboxNotSelectedToast(anchor)
+    }
+
+    private fun showPrivacyAgreementAlert(
+        anchor: ViewGroup?,
+        checkbox: CheckBox?,
+        continueAction: () -> Unit
+    ) {
+        if (privacyAgreementAlertShowing) return
+        val currentActivity = currentTopActivity ?: activity ?: anchor?.context as? Activity ?: return
+        privacyAgreementAlertShowing = true
+
+        val baseWidth = toPx(350f, currentActivity)
+        val availableWidth = currentActivity.resources.displayMetrics.widthPixels - toPx(32f, currentActivity).toInt()
+        val minDialogWidth = minOf(toPx(280f, currentActivity).toInt(), availableWidth)
+        val dialogWidth = minOf(baseWidth.toInt(), availableWidth).coerceAtLeast(minDialogWidth)
+        val scale = dialogWidth / baseWidth
+        fun sx(dp: Float): Int = (toPx(dp, currentActivity) * scale).toInt()
+
+        val dialogHeight = sx(200f)
+        val card = FrameLayout(currentActivity).apply {
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = sx(12f).toFloat()
+            }
+            layoutParams = ViewGroup.LayoutParams(dialogWidth, dialogHeight)
+        }
+
+        val title = TextView(currentActivity).apply {
+            text = privacyAgreementAlertTitle
+            setTextColor(Color.parseColor("#FF333333"))
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        card.addView(title, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            sx(24f)
+        ).apply {
+            leftMargin = sx(32f)
+            rightMargin = sx(32f)
+            topMargin = sx(20f)
+        })
+
+        val divider = View(currentActivity).apply {
+            setBackgroundColor(adjustAlpha(Color.parseColor("#FF333333"), 0.15f))
+        }
+        card.addView(divider, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            1
+        ).apply {
+            leftMargin = sx(32f)
+            rightMargin = sx(32f)
+            topMargin = sx(54f)
+        })
+
+        val message = TextView(currentActivity).apply {
+            text = privacyAgreementAlertMessage
+            setTextColor(Color.parseColor("#FF333333"))
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            maxLines = 4
+            maxHeight = sx(52f)
+            movementMethod = ScrollingMovementMethod.getInstance()
+            isVerticalScrollBarEnabled = true
+        }
+        card.addView(message, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            leftMargin = sx(32f)
+            rightMargin = sx(32f)
+            topMargin = sx(79f)
+        })
+
+        val buttonGap = sx(26f)
+        val buttonWidth = (dialogWidth - sx(64f) - buttonGap) / 2
+        val buttonHeight = sx(40f)
+        val buttonTop = sx(136f)
+        val cancelButton = createPrivacyAgreementAlertButton(
+            currentActivity,
+            privacyAgreementAlertCancelText,
+            adjustAlpha(Color.parseColor("#FF333333"), 0.2f),
+            sx(20f).toFloat()
+        )
+        val continueButton = createPrivacyAgreementAlertButton(
+            currentActivity,
+            privacyAgreementAlertContinueText,
+            Color.parseColor("#FF333333"),
+            sx(20f).toFloat()
+        )
+
+        val dialog = Dialog(currentActivity).apply {
+            requestWindowFeature(Window.FEATURE_NO_TITLE)
+            setCancelable(false)
+            setCanceledOnTouchOutside(false)
+            setContentView(card)
+            setOnDismissListener {
+                privacyAgreementAlertShowing = false
+                privacyAgreementDialog = null
+            }
+        }
+        privacyAgreementDialog = dialog
+
+        cancelButton.setOnClickListener {
+            dialog.dismiss()
+        }
+        continueButton.setOnClickListener {
+            dialog.dismiss()
+            // “同意并继续”在 SDK 原生侧闭环：先勾选协议，再触发真实一键登录按钮。
+            if (checkbox != null && !checkbox.isChecked) {
+                checkbox.performClick()
+            }
+            mainHandler.post {
+                continueAction()
+            }
+        }
+
+        card.addView(cancelButton, FrameLayout.LayoutParams(buttonWidth, buttonHeight).apply {
+            leftMargin = sx(32f)
+            topMargin = buttonTop
+        })
+        card.addView(continueButton, FrameLayout.LayoutParams(buttonWidth, buttonHeight).apply {
+            leftMargin = sx(32f) + buttonWidth + buttonGap
+            topMargin = buttonTop
+        })
+
+        dialog.show()
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setDimAmount(0.35f)
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setLayout(dialogWidth, dialogHeight)
+        }
+    }
+
+    private fun createPrivacyAgreementAlertButton(
+        context: Context,
+        textValue: String,
+        backgroundColor: Int,
+        radius: Float
+    ): TextView {
+        return TextView(context).apply {
+            text = textValue
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            isClickable = true
+            isFocusable = true
+            background = GradientDrawable().apply {
+                setColor(backgroundColor)
+                cornerRadius = radius
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                foreground = createRippleDrawable(radius)
+            }
+        }
+    }
+
+    private fun dismissPrivacyAgreementAlert() {
+        privacyAgreementDialog?.dismiss()
+        privacyAgreementDialog = null
+        privacyAgreementAlertShowing = false
     }
 
     private fun showNativeToast(message: String, anchor: ViewGroup?, durationMs: Long = 3000L) {

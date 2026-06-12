@@ -77,5 +77,7 @@ void main() {
 
     final prefetchResult = await plugin.prefetchNumber();
     expect(prefetchResult.raw['resultCode'], 'prefetch');
+
+    await plugin.dismiss();
   });
 }

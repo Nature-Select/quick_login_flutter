@@ -62,7 +62,7 @@ class QuickLoginFlutter {
   }
 
   /// 获取事件流，用于监听授权页相关事件
-  /// 
+  ///
   /// 返回的事件 Map 包含以下字段：
   /// - [QuickLoginEventKeys.event]: 事件类型，可能的值：
   ///   - [QuickLoginEventKeys.eventTypeSwitchToSmsLogin]: 用户点击了切换到验证码登录按钮
@@ -71,7 +71,7 @@ class QuickLoginFlutter {
   ///   - [QuickLoginEventKeys.eventTypeAuthPageShown]: 原生授权页已弹出
   ///   - [QuickLoginEventKeys.eventTypeAuthPageClosed]: 原生授权页已关闭
   /// - [QuickLoginEventKeys.payload]: 事件携带的数据（对于某些事件类型）
-  /// 
+  ///
   /// 使用示例：
   /// ```dart
   /// QuickLoginFlutter.instance.getEventStream().listen((event) {

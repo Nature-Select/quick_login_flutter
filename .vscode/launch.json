@@ -1,0 +1,23 @@
+{
+  // Run the plugin example app from the example/ directory so dotenv and
+  // platform project files resolve exactly like `cd example && flutter run`.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Example Android",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "${workspaceFolder}/example",
+      "program": "lib/main.dart",
+      "flutterMode": "debug"
+    },
+    {
+      "name": "Example iOS",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "${workspaceFolder}/example",
+      "program": "lib/main.dart",
+      "flutterMode": "debug"
+    }
+  ]
+}
