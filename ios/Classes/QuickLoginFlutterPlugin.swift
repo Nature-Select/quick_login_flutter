@@ -34,7 +34,19 @@ private class LoginButtonActionTarget: NSObject {
       return findCheckboxFunc?(customView, checkBoxFrame) as? UIControl
     }()
 
-    if let checkboxControl = checkboxControl, !checkboxControl.isSelected {
+    guard let checkboxControl = checkboxControl else {
+      plugin?.logLifecycle("tap(custom) blocked (checkboxNotFound)")
+      plugin?.handlePrivacyAgreementUnchecked(
+        in: customView,
+        checkboxControl: nil,
+        eventSinkProvider: eventSinkProvider,
+        fallbackEventSink: eventSink,
+        continueAction: {}
+      )
+      return
+    }
+
+    if !checkboxControl.isSelected {
       plugin?.logLifecycle("tap(custom) blocked (checkboxNotSelected)")
       plugin?.handlePrivacyAgreementUnchecked(
         in: customView,
@@ -1491,7 +1503,8 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
       guard let self = self else { return }
       self.dismissPrivacyAgreementAlert()
       // “同意并继续”由 SDK 原生侧闭环：先把协议勾选，再复用真实登录按钮继续。
-      if let checkboxControl = checkboxControl, !checkboxControl.isSelected {
+      guard let checkboxControl = checkboxControl else { return }
+      if !checkboxControl.isSelected {
         checkboxControl.sendActions(for: .touchUpInside)
       }
       DispatchQueue.main.async {

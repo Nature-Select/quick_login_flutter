@@ -1675,16 +1675,17 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             this.tag = customLoginButtonTag
             setOnClickListener {
                 // 检查复选框是否勾选
-                val checkbox = findNativeCheckbox(contentRoot)
-                val isChecked = (checkbox as? CheckBox)?.isChecked ?: true
-                if (isChecked) {
+                val checkbox = findNativeCheckbox(contentRoot) as? CheckBox
+                if (checkbox == null) {
+                    handlePrivacyAgreementUnchecked(contentRoot, null) {}
+                } else if (checkbox.isChecked) {
                     val clickTarget = currentNativeLoginButton
                         ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = true) }
                     if (clickTarget != null) {
                         clickTarget.performClick()
                     }
                 } else {
-                    handlePrivacyAgreementUnchecked(contentRoot, checkbox as? CheckBox) {
+                    handlePrivacyAgreementUnchecked(contentRoot, checkbox) {
                         val clickTarget = currentNativeLoginButton
                             ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = true) }
                         if (clickTarget != null) {
@@ -1779,7 +1780,9 @@ class QuickLoginFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         }
         guardView.setOnClickListener {
             val checkbox = findNativeCheckbox(contentRoot) as? CheckBox
-            if (checkbox == null || checkbox.isChecked) {
+            if (checkbox == null) {
+                handlePrivacyAgreementUnchecked(contentRoot, null) {}
+            } else if (checkbox.isChecked) {
                 val clickTarget = currentNativeLoginButton
                     ?.takeIf { isAttachedToRoot(it, contentRoot) && isNativeLoginButtonCandidate(it, includeHidden = false) }
                 clickTarget?.performClick()
