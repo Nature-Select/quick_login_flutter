@@ -107,6 +107,11 @@ class AuthUIConfig {
     this.privacyAnimation,
     this.checkTipText,
     this.showNativeToast = true,
+    this.showPrivacyAgreementAlert = false,
+    this.privacyAgreementAlertTitle = '运营商服务协议',
+    this.privacyAgreementAlertMessage = '点击同意并继续视为您已同意运营商服务协议，并使用本机号码一键登录',
+    this.privacyAgreementAlertCancelText = '取消',
+    this.privacyAgreementAlertContinueText = '同意并继续',
     this.nativeToastCenterYOffset,
     this.webDomStorage,
     this.privacyDefaultCheck,
@@ -352,8 +357,29 @@ class AuthUIConfig {
   /// 未勾选提示文案
   final String? checkTipText;
 
-  /// 是否展示原生 toast（复选框未勾选时）
+  /// 是否展示原生 toast（复选框未勾选时）。
+  ///
+  /// 当 [showPrivacyAgreementAlert] 为 true 时，SDK 会优先展示确认弹窗；
+  /// 当 [showPrivacyAgreementAlert] 为 false 时，才会按该字段决定是否展示 toast。
   final bool showNativeToast;
+
+  /// 未勾选协议点击登录时，是否在原生授权页上弹出通用确认框。
+  ///
+  /// 用户点击“同意并继续”后，SDK 会在原生侧自动勾选协议并继续触发一键登录；
+  /// 用户点击“取消”只关闭弹窗，不会继续登录。
+  final bool showPrivacyAgreementAlert;
+
+  /// 未勾选协议确认框标题
+  final String? privacyAgreementAlertTitle;
+
+  /// 未勾选协议确认框正文
+  final String? privacyAgreementAlertMessage;
+
+  /// 未勾选协议确认框取消按钮文案
+  final String? privacyAgreementAlertCancelText;
+
+  /// 未勾选协议确认框继续按钮文案
+  final String? privacyAgreementAlertContinueText;
 
   /// toast 相对 window 中心的 Y 轴偏移（dp，正数向下）
   final double? nativeToastCenterYOffset;
@@ -539,6 +565,11 @@ class AuthUIConfig {
       'privacyAnimation': privacyAnimation,
       'checkTipText': checkTipText,
       'showNativeToast': showNativeToast,
+      'showPrivacyAgreementAlert': showPrivacyAgreementAlert,
+      'privacyAgreementAlertTitle': privacyAgreementAlertTitle,
+      'privacyAgreementAlertMessage': privacyAgreementAlertMessage,
+      'privacyAgreementAlertCancelText': privacyAgreementAlertCancelText,
+      'privacyAgreementAlertContinueText': privacyAgreementAlertContinueText,
       'nativeToastCenterYOffset': nativeToastCenterYOffset,
       'webDomStorage': webDomStorage,
       'privacyDefaultCheck': privacyDefaultCheck,

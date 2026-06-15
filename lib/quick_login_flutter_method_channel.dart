@@ -11,7 +11,7 @@ class MethodChannelQuickLoginFlutter extends QuickLoginFlutterPlatform {
   final methodChannel = const MethodChannel('quick_login_flutter');
   @visibleForTesting
   final eventChannel = const EventChannel('quick_login_flutter/events');
-  
+
   Stream<Map<String, dynamic>>? _eventStream;
 
   @override
@@ -71,9 +71,14 @@ class MethodChannelQuickLoginFlutter extends QuickLoginFlutterPlatform {
   /// 获取事件流，用于监听切换到验证码登录等事件
   @override
   Stream<Map<String, dynamic>> getEventStream() {
-    _eventStream ??= eventChannel.receiveBroadcastStream().cast<Map<dynamic, dynamic>>().map((event) {
-      return Map<String, dynamic>.from(event.map((key, value) => MapEntry(key.toString(), value)));
-    });
+    _eventStream ??= eventChannel
+        .receiveBroadcastStream()
+        .cast<Map<dynamic, dynamic>>()
+        .map((event) {
+          return Map<String, dynamic>.from(
+            event.map((key, value) => MapEntry(key.toString(), value)),
+          );
+        });
     return _eventStream!;
   }
 }

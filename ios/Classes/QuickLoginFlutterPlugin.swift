@@ -34,15 +34,30 @@ private class LoginButtonActionTarget: NSObject {
       return findCheckboxFunc?(customView, checkBoxFrame) as? UIControl
     }()
 
-    if let checkboxControl = checkboxControl, !checkboxControl.isSelected {
+    guard let checkboxControl = checkboxControl else {
+      plugin?.logLifecycle("tap(custom) blocked (checkboxNotFound)")
+      plugin?.handlePrivacyAgreementUnchecked(
+        in: customView,
+        checkboxControl: nil,
+        eventSinkProvider: eventSinkProvider,
+        fallbackEventSink: eventSink,
+        continueAction: {}
+      )
+      return
+    }
+
+    if !checkboxControl.isSelected {
       plugin?.logLifecycle("tap(custom) blocked (checkboxNotSelected)")
-      DispatchQueue.main.async { [weak self] in
-        // 原生弹出提示，避免 Flutter 侧被覆盖
-        self?.plugin?.showCheckboxNotSelectedToast(in: customView)
-        // 继续发送事件，保持 Dart 侧兼容（eventSink 可能在 onListen 后才可用）
-        let sink = self?.eventSinkProvider?() ?? self?.eventSink
-        sink?(["event": "checkboxNotChecked"])
-      }
+      plugin?.handlePrivacyAgreementUnchecked(
+        in: customView,
+        checkboxControl: checkboxControl,
+        eventSinkProvider: eventSinkProvider,
+        fallbackEventSink: eventSink,
+        continueAction: { [weak self, weak sender] in
+          guard let self = self, let sender = sender else { return }
+          self.triggerNativeButton(sender)
+        }
+      )
       return
     }
 
@@ -70,6 +85,20 @@ private class CheckboxHitAreaButton: UIButton {
   }
 }
 
+/// 保存自绘隐私确认弹窗按钮事件，避免使用 iOS 14 才支持的 UIAction。
+private class PrivacyAgreementAlertActionTarget: NSObject {
+  var cancelAction: (() -> Void)?
+  var continueAction: (() -> Void)?
+
+  @objc func onCancel() {
+    cancelAction?()
+  }
+
+  @objc func onContinue() {
+    continueAction?()
+  }
+}
+
 public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var channel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
@@ -82,8 +111,16 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private var toastHideWorkItem: DispatchWorkItem?
   private var checkboxTipText: String = "请先阅读并勾选运营商服务协议"
   private var nativeToastEnabled: Bool = true
+  private var privacyAgreementAlertEnabled: Bool = false
+  private var privacyAgreementAlertShowing: Bool = false
+  private var privacyAgreementAlertTitle: String = "运营商服务协议"
+  private var privacyAgreementAlertMessage: String = "点击同意并继续视为您已同意运营商服务协议，并使用本机号码一键登录"
+  private var privacyAgreementAlertCancelText: String = "取消"
+  private var privacyAgreementAlertContinueText: String = "同意并继续"
+  private weak var privacyAgreementAlertOverlay: UIView?
   private var nativeToastOffsetY: CGFloat = 0
   private let checkboxHitAreaTag = 98765001
+  private let loginGuardButtonTag = 98765002
   private var authPageClosedEmitted: Bool = false
   private var authPageShown: Bool = false
   private var loginButtonLocked: Bool = false
@@ -296,6 +333,9 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   }
 
   private func emitAuthPageClosedIfNeeded() {
+    DispatchQueue.main.async { [weak self] in
+      self?.dismissPrivacyAgreementAlert()
+    }
     unlockLoginButtonIfNeeded(reason: "authPageClosed")
     if authPageClosedEmitted {
       return
@@ -326,6 +366,11 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     // 每次配置时刷新勾选提示文案，避免复用旧值
     checkboxTipText = "请先阅读并勾选运营商服务协议"
     nativeToastEnabled = (config["showNativeToast"] as? Bool) ?? true
+    privacyAgreementAlertEnabled = (config["showPrivacyAgreementAlert"] as? Bool) ?? false
+    privacyAgreementAlertTitle = config["privacyAgreementAlertTitle"] as? String ?? "运营商服务协议"
+    privacyAgreementAlertMessage = config["privacyAgreementAlertMessage"] as? String ?? "点击同意并继续视为您已同意运营商服务协议，并使用本机号码一键登录"
+    privacyAgreementAlertCancelText = config["privacyAgreementAlertCancelText"] as? String ?? "取消"
+    privacyAgreementAlertContinueText = config["privacyAgreementAlertContinueText"] as? String ?? "同意并继续"
     nativeToastOffsetY = CGFloat((config["nativeToastCenterYOffset"] as? Double) ?? 0.0)
     let presentation = (config["presentationStyle"] as? String) ?? "fullScreen"
     let widthPercent = config["windowWidthPercent"] as? Double
@@ -870,7 +915,16 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
         // 如果存在自定义按钮覆盖层（原生按钮已隐藏），无需再给原生按钮加 guard，
         // 否则 sendActions(for:) 会触发 guard 日志，容易误判为重复点击。
         if self.currentCustomLoginButton == nil {
-          self.attachNativeLoginButtonGuardIfNeeded(to: nativeButton)
+          if self.privacyAgreementAlertEnabled {
+            self.ensurePrivacyAgreementLoginGuard(
+              in: customView,
+              loginBtnFrame: loginBtnFrame,
+              checkBoxFrame: checkBoxFrame,
+              nativeButton: nativeButton
+            )
+          } else {
+            self.attachNativeLoginButtonGuardIfNeeded(to: nativeButton)
+          }
         }
       }
       self.applyLoginButtonLockedState()
@@ -960,6 +1014,43 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     logLifecycle("nativeLoginButtonGuard attached")
   }
 
+  private func ensurePrivacyAgreementLoginGuard(
+    in customView: UIView,
+    loginBtnFrame: CGRect,
+    checkBoxFrame: CGRect,
+    nativeButton: UIButton
+  ) {
+    let guardButton: UIButton
+    if let existing = customView.viewWithTag(loginGuardButtonTag) as? UIButton {
+      guardButton = existing
+      guardButton.frame = loginBtnFrame
+    } else {
+      guardButton = UIButton(type: .custom)
+      guardButton.tag = loginGuardButtonTag
+      guardButton.frame = loginBtnFrame
+      guardButton.backgroundColor = .clear
+      customView.addSubview(guardButton)
+    }
+
+    let actionTarget = LoginButtonActionTarget()
+    actionTarget.nativeButton = nativeButton
+    actionTarget.customView = customView
+    actionTarget.checkBoxFrame = checkBoxFrame
+    actionTarget.eventSink = eventSink
+    actionTarget.eventSinkProvider = { [weak self] in
+      return self?.eventSink
+    }
+    actionTarget.checkboxHitAreaTag = checkboxHitAreaTag
+    actionTarget.findCheckboxFunc = findCheckbox
+    actionTarget.plugin = self
+
+    guardButton.removeTarget(nil, action: nil, for: .touchUpInside)
+    guardButton.addTarget(actionTarget, action: #selector(LoginButtonActionTarget.triggerNativeButton(_:)), for: .touchUpInside)
+    objc_setAssociatedObject(guardButton, "privacyAgreementLoginGuardActionTarget", actionTarget, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    customView.bringSubviewToFront(guardButton)
+    logLifecycle("privacyAgreementLoginGuard attached")
+  }
+
   @objc private func onNativeLoginButtonTapGuard(_ sender: UIButton) {
     if loginButtonLocked {
       logLifecycle("tap(native) ignored (alreadyLocked)")
@@ -997,13 +1088,16 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     logLifecycle("closeButton tapped")
     dismissAuthPageAndEmit()
   }
-  
+
   /// 在视图层次结构中查找位于指定 frame 的登录按钮
   private func findLoginButton(in view: UIView, frame: CGRect) -> UIButton? {
     // 遍历所有子视图查找按钮
     for subview in view.subviews {
       // 如果找到 UIButton 且 frame 匹配（允许小范围误差）
       if let button = subview as? UIButton {
+        if button.tag == loginGuardButtonTag {
+          continue
+        }
         let frameDiff = abs(button.frame.origin.x - frame.origin.x) +
                        abs(button.frame.origin.y - frame.origin.y) +
                        abs(button.frame.width - frame.width) +
@@ -1210,6 +1304,7 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
   private func dismissAuthPageAndEmit() {
     logLifecycle("dismissAuthPageAndEmit")
     DispatchQueue.main.async { [weak self] in
+      self?.dismissPrivacyAgreementAlert()
       UAFSDKLogin.share.ua_dismissViewController(animated: true, completion: { [weak self] in
         self?.emitAuthPageClosedIfNeeded()
       })
@@ -1310,6 +1405,172 @@ public class QuickLoginFlutterPlugin: NSObject, FlutterPlugin {
     let g = CGFloat((value >> 8) & 0xff) / 255.0
     let b = CGFloat(value & 0xff) / 255.0
     return UIColor(red: r, green: g, blue: b, alpha: a)
+  }
+
+  fileprivate func handlePrivacyAgreementUnchecked(
+    in view: UIView?,
+    checkboxControl: UIControl?,
+    eventSinkProvider: (() -> FlutterEventSink?)?,
+    fallbackEventSink: FlutterEventSink?,
+    continueAction: @escaping () -> Void
+  ) {
+    DispatchQueue.main.async { [weak self, weak checkboxControl] in
+      guard let self = self else { return }
+      let sink = eventSinkProvider?() ?? fallbackEventSink
+      sink?(["event": "checkboxNotChecked"])
+
+      if self.privacyAgreementAlertEnabled {
+        self.showPrivacyAgreementAlert(
+          from: view,
+          checkboxControl: checkboxControl,
+          continueAction: continueAction
+        )
+        return
+      }
+
+      self.showCheckboxNotSelectedToast(in: view)
+    }
+  }
+
+  private func showPrivacyAgreementAlert(
+    from view: UIView?,
+    checkboxControl: UIControl?,
+    continueAction: @escaping () -> Void
+  ) {
+    guard !privacyAgreementAlertShowing else { return }
+    guard let hostWindow = view?.window ?? topViewController()?.view.window else { return }
+    privacyAgreementAlertShowing = true
+
+    let overlay = UIControl(frame: hostWindow.bounds)
+    overlay.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+    overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+    let availableWidth = max(CGFloat(0), hostWindow.bounds.width - 32)
+    let minDialogWidth = min(CGFloat(280), availableWidth)
+    let maxDialogWidth = max(min(CGFloat(350), availableWidth), minDialogWidth)
+    guard maxDialogWidth > 0 else {
+      privacyAgreementAlertShowing = false
+      return
+    }
+    let scale = maxDialogWidth / 350.0
+    let dialogHeight = 200.0 * scale
+
+    let card = UIView()
+    card.translatesAutoresizingMaskIntoConstraints = false
+    card.backgroundColor = .white
+    card.layer.cornerRadius = 12
+    card.layer.masksToBounds = true
+    overlay.addSubview(card)
+
+    let titleLabel = UILabel()
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    titleLabel.text = privacyAgreementAlertTitle
+    titleLabel.textColor = colorFromInt(0xFF333333)
+    titleLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+    titleLabel.textAlignment = .center
+    titleLabel.numberOfLines = 1
+    card.addSubview(titleLabel)
+
+    let divider = UIView()
+    divider.translatesAutoresizingMaskIntoConstraints = false
+    divider.backgroundColor = colorFromInt(0x26333333)
+    card.addSubview(divider)
+
+    let messageLabel = UILabel()
+    messageLabel.translatesAutoresizingMaskIntoConstraints = false
+    messageLabel.text = privacyAgreementAlertMessage
+    messageLabel.textColor = colorFromInt(0xFF333333)
+    messageLabel.font = UIFont.systemFont(ofSize: 14, weight: .light)
+    messageLabel.textAlignment = .center
+    messageLabel.numberOfLines = 0
+    messageLabel.lineBreakMode = .byTruncatingTail
+    messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+    card.addSubview(messageLabel)
+
+    let cancelButton = makePrivacyAgreementAlertButton(
+      title: privacyAgreementAlertCancelText,
+      backgroundColor: colorFromInt(0x33333333)
+    )
+    let continueButton = makePrivacyAgreementAlertButton(
+      title: privacyAgreementAlertContinueText,
+      backgroundColor: colorFromInt(0xFF333333)
+    )
+    let actionTarget = PrivacyAgreementAlertActionTarget()
+    actionTarget.cancelAction = { [weak self] in
+      self?.dismissPrivacyAgreementAlert()
+    }
+    actionTarget.continueAction = { [weak self, weak checkboxControl] in
+      guard let self = self else { return }
+      self.dismissPrivacyAgreementAlert()
+      // “同意并继续”由 SDK 原生侧闭环：先把协议勾选，再复用真实登录按钮继续。
+      guard let checkboxControl = checkboxControl else { return }
+      if !checkboxControl.isSelected {
+        checkboxControl.sendActions(for: .touchUpInside)
+      }
+      DispatchQueue.main.async {
+        continueAction()
+      }
+    }
+    cancelButton.addTarget(actionTarget, action: #selector(PrivacyAgreementAlertActionTarget.onCancel), for: .touchUpInside)
+    continueButton.addTarget(actionTarget, action: #selector(PrivacyAgreementAlertActionTarget.onContinue), for: .touchUpInside)
+    objc_setAssociatedObject(overlay, "privacyAgreementAlertActionTarget", actionTarget, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+
+    let buttonStack = UIStackView(arrangedSubviews: [cancelButton, continueButton])
+    buttonStack.translatesAutoresizingMaskIntoConstraints = false
+    buttonStack.axis = .horizontal
+    buttonStack.alignment = .fill
+    buttonStack.distribution = .fillEqually
+    buttonStack.spacing = 26 * scale
+    card.addSubview(buttonStack)
+
+    hostWindow.addSubview(overlay)
+    privacyAgreementAlertOverlay = overlay
+
+    NSLayoutConstraint.activate([
+      card.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+      card.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+      card.widthAnchor.constraint(equalToConstant: maxDialogWidth),
+      card.heightAnchor.constraint(equalToConstant: dialogHeight),
+
+      titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 20 * scale),
+      titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 32 * scale),
+      titleLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -32 * scale),
+
+      divider.topAnchor.constraint(equalTo: card.topAnchor, constant: 54 * scale),
+      divider.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 32 * scale),
+      divider.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -32 * scale),
+      divider.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
+
+      messageLabel.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 20 * scale),
+      messageLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 32 * scale),
+      messageLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -32 * scale),
+      messageLabel.bottomAnchor.constraint(lessThanOrEqualTo: buttonStack.topAnchor, constant: -12 * scale),
+      messageLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 52 * scale),
+
+      buttonStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 32 * scale),
+      buttonStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -32 * scale),
+      buttonStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -24 * scale),
+      buttonStack.heightAnchor.constraint(equalToConstant: 40 * scale),
+    ])
+  }
+
+  private func makePrivacyAgreementAlertButton(title: String, backgroundColor: UIColor) -> UIButton {
+    let button = UIButton(type: .custom)
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.setTitle(title, for: .normal)
+    button.setTitleColor(.white, for: .normal)
+    button.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+    button.titleLabel?.lineBreakMode = .byTruncatingTail
+    button.backgroundColor = backgroundColor
+    button.layer.cornerRadius = 20
+    button.layer.masksToBounds = true
+    return button
+  }
+
+  private func dismissPrivacyAgreementAlert() {
+    privacyAgreementAlertOverlay?.removeFromSuperview()
+    privacyAgreementAlertOverlay = nil
+    privacyAgreementAlertShowing = false
   }
 
   fileprivate func showCheckboxNotSelectedToast(in view: UIView?) {
